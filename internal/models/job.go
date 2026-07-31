@@ -5,14 +5,22 @@ package models
 
 import "time"
 
+// SubmissionRequest is the JSON payload the API accepts from clients.
+type SubmissionRequest struct {
+	Language string `json:"language"`
+	Code     string `json:"code"`
+	Stdin    string `json:"stdin,omitempty"`
+}
+
 // Job is the unit of work pulled from the minos:queue Redis list.
 // It is produced by the API gateway and consumed by workers via BLPOP.
 type Job struct {
-	ID       string    `json:"id"`
-	Language string    `json:"language"`
-	Code     string    `json:"code"`
-	Stdin    string    `json:"stdin,omitempty"`
-	Created  time.Time `json:"created"`
+	ID        string    `json:"id"`
+	Language  string    `json:"language"`
+	Code      string    `json:"code"`
+	Stdin     string    `json:"stdin,omitempty"`
+	Submitter string    `json:"submitter,omitempty"` // API key identity, set by the gateway
+	Created   time.Time `json:"created"`
 }
 
 // ExecutionResult is pushed to minos:result:{job_id} once a job finishes

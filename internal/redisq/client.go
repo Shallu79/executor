@@ -1,4 +1,5 @@
 // Package redisq wraps the Redis client with the queue/result operations
+// shared by the API gateway and the worker, per ARCHITECTURE.md section 5.2.
 package redisq
 
 import (
@@ -6,16 +7,16 @@ import (
 	"fmt"
 	"time"
 
-	"minos/internal/config"
-
 	"github.com/redis/go-redis/v9"
 )
 
-func NewClient(cfg config.Config) *redis.Client {
+// NewClient builds a Redis client. Shared by both the API gateway and the
+// worker so they always talk to the same broker with the same options.
+func NewClient(addr, password string, db int) *redis.Client {
 	return redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:     addr,
+		Password: password,
+		DB:       db,
 	})
 }
 

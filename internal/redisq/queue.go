@@ -23,6 +23,15 @@ func NewQueue(rdb *redis.Client, key string) *Queue {
 	return &Queue{rdb: rdb, key: key}
 }
 
+// Push appends a job to the queue (RPUSH). Used by the API gateway.
+func (q *Queue) Push(ctx context.Context, job models.Job) error {
+	payload, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	return q.rdb.RPush(ctx, q.key, payload).Err()
+}
+
 // Pop block-waits up to timeout for the next job.
 // Returns (nil, nil) when the timeout expires with no job - callers loop.
 func (q *Queue) Pop(ctx context.Context, timeout time.Duration) (*models.Job, error) {

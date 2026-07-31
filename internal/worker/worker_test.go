@@ -45,7 +45,7 @@ func TestWorkerEndToEnd(t *testing.T) {
 		Hostname:        "test-host",
 	}
 
-	rdb := redisq.NewClient(cfg)
+	rdb := redisq.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	defer rdb.Close()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -151,7 +151,7 @@ func TestWorkerDropsMalformedJobs(t *testing.T) {
 		Hostname:        "test-host",
 	}
 
-	rdb := redisq.NewClient(cfg)
+	rdb := redisq.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	defer rdb.Close()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

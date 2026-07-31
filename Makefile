@@ -1,9 +1,11 @@
 BINARY := minos-worker
+API_BINARY := minos-api
 
-.PHONY: build test vet fmt clean up down logs smoke
+.PHONY: build test vet fmt clean up down logs smoke e2e api-smoke
 
 build:
 	go build -o bin/$(BINARY) ./cmd/worker
+	go build -o bin/$(API_BINARY) ./cmd/api
 
 test:
 	go test ./...
@@ -36,3 +38,7 @@ smoke:
 # Full end-to-end suite: hello, timeout, exit codes, stderr, stdin, C, truncation
 e2e:
 	bash scripts/e2e-test.sh
+
+# API smoke test: submit + poll through the real gateway
+api-smoke:
+	bash scripts/api-smoke.sh

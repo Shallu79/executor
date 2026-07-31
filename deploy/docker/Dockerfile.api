@@ -1,0 +1,13 @@
+# Minos API gateway image (stateless, no sandbox) — per ARCHITECTURE.md 9.2.
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/minos-api ./cmd/api
+
+FROM scratch
+COPY --from=build /out/minos-api /minos-api
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+EXPOSE 8080
+ENTRYPOINT ["/minos-api"]

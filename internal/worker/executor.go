@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"text/template"
@@ -15,6 +16,7 @@ import (
 
 	nsjailcfg "minos/configs/nsjail"
 	"minos/internal/config"
+	"minos/internal/languages"
 	"minos/internal/models"
 )
 
@@ -22,7 +24,7 @@ import (
 type Executor struct {
 	cfg   config.Config
 	tmpl  *template.Template
-	langs map[string]Language
+	langs map[string]languages.Language
 	log   *slog.Logger
 }
 
@@ -39,7 +41,7 @@ func NewExecutor(cfg config.Config, log *slog.Logger) (*Executor, error) {
 	return &Executor{
 		cfg:   cfg,
 		tmpl:  tmpl,
-		langs: DefaultLanguages(),
+		langs: languages.DefaultLanguages(),
 		log:   log,
 	}, nil
 }
@@ -54,6 +56,17 @@ func (e *Executor) Execute(ctx context.Context, job models.Job) models.Execution
 			ExitCode: 255,
 			Stderr:   fmt.Sprintf("unsupported language: %q", job.Language),
 		}
+	}
+
+	// Java requires the public class to live in a file named after it, but
+	// submissions come in with arbitrary class names (NQueens, Solution...).
+	// Detect the public class and compile/run with that name instead of the
+	// hardcoded Main; fall back to Main when there's no public class.
+	if lang.Name == "java" {
+		mainClass := detectJavaMain(job.Code)
+		lang.SourceFile = mainClass + ".java"
+		lang.CompileArgs = []string{"-d", "/app", "/app/" + mainClass + ".java"}
+		lang.ExecArgs = []string{"-Xmx256m", "-Djava.io.tmpdir=/app", "-cp", "/app", mainClass}
 	}
 
 	ws, err := NewWorkspace(e.cfg.TmpDir, job.ID)
@@ -101,7 +114,7 @@ type execPhase struct {
 	Env         []string
 }
 
-func compilePhase(l Language) execPhase {
+func compilePhase(l languages.Language) execPhase {
 	return execPhase{
 		Name:        "compile",
 		TimeLimit:   l.CompileTimeLimit,
@@ -110,11 +123,11 @@ func compilePhase(l Language) execPhase {
 		MaxFileSize: l.CompileMaxFSize,
 		ExecPath:    l.CompilePath,
 		ExecArgs:    l.CompileArgs,
-		Env:         l.CompileEnv,
+		Env:         withJailPath(l.CompileEnv),
 	}
 }
 
-func runPhase(l Language) execPhase {
+func runPhase(l languages.Language) execPhase {
 	return execPhase{
 		Name:        "run",
 		TimeLimit:   l.TimeLimit,
@@ -123,13 +136,46 @@ func runPhase(l Language) execPhase {
 		MaxFileSize: l.MaxFileSize,
 		ExecPath:    l.ExecPath,
 		ExecArgs:    l.ExecArgs,
-		Env:         l.Env,
+		Env:         withJailPath(l.Env),
 	}
+}
+
+// jailPath is the PATH the jail processes get. nsjail clears the environment
+// by default, and gcc's collect2 (and other tools) search PATH to find their
+// sub-tools (as, ld, cc1) — without it you get "collect2: fatal error:
+// cannot find 'ld'" (ARCHITECTURE.md 8.9).
+const jailPath = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// withJailPath prepends the jail PATH unless the phase already sets one.
+func withJailPath(env []string) []string {
+	for _, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			return env
+		}
+	}
+	return append([]string{jailPath}, env...)
+}
+
+// javaMainRe matches the public class declaration in a Java source file.
+// It also covers `public final class` / `public abstract class`. Anchored to
+// the start of a line so commented-out declarations (// public class X) are
+// ignored. The class name is restricted to Java identifier chars so it can
+// never inject a path.
+var javaMainRe = regexp.MustCompile(`(?m)^\s*public\s+(?:final\s+|abstract\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)`)
+
+// detectJavaMain returns the name of the public class in a Java submission,
+// or "Main" if there is none (the file will be named after the class so
+// javac's "file must match public class name" rule is satisfied).
+func detectJavaMain(code string) string {
+	if m := javaMainRe.FindStringSubmatch(code); len(m) == 2 {
+		return m[1]
+	}
+	return "Main"
 }
 
 // renderConfig writes the per-phase nsjail config into the workspace
 // (outside the /app bind mount) and returns its path.
-func (e *Executor) renderConfig(ws *Workspace, lang Language, ph execPhase) (string, error) {
+func (e *Executor) renderConfig(ws *Workspace, lang languages.Language, ph execPhase) (string, error) {
 	data := struct {
 		Name           string
 		TimeLimit      int
@@ -170,7 +216,7 @@ func (e *Executor) renderConfig(ws *Workspace, lang Language, ph execPhase) (str
 //  1. nsjail's own time_limit / rlimit_cpu (primary, kernel-enforced)
 //  2. Go context deadline = TimeLimit + 2s (fallback — belt + suspenders)
 //  3. WaitDelay caps the time we can ever block on inherited pipes
-func (e *Executor) runPhase(ctx context.Context, ws *Workspace, jobID string, lang Language, ph execPhase) models.ExecutionResult {
+func (e *Executor) runPhase(ctx context.Context, ws *Workspace, jobID string, lang languages.Language, ph execPhase) models.ExecutionResult {
 	res := models.ExecutionResult{}
 
 	cfgPath, err := e.renderConfig(ws, lang, ph)

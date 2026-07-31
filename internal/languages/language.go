@@ -1,4 +1,8 @@
-package worker
+// Package languages defines the supported-language registry shared by the
+// API gateway (validation) and the worker (execution). A language is only
+// usable if its runtime is installed in the worker image and it has an
+// entry here — the registry is the allowlist.
+package languages
 
 // Language describes how a submission in one programming language is
 // executed inside nsjail. Compiled languages additionally fill the
@@ -146,4 +150,10 @@ func DefaultLanguages() map[string]Language {
 		cpp.Name:    cpp,
 		java.Name:   java,
 	}
+}
+
+// IsSupported reports whether name is a registered language.
+func IsSupported(name string) bool {
+	_, ok := DefaultLanguages()[name]
+	return ok
 }

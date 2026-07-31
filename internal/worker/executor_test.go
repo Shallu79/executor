@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minos/internal/config"
+	"minos/internal/languages"
 	"minos/internal/models"
 )
 
@@ -294,7 +295,7 @@ func TestRenderConfigContents(t *testing.T) {
 	}
 	defer ws.Cleanup()
 
-	lang := DefaultLanguages()["python"]
+	lang := languages.DefaultLanguages()["python"]
 	cfgPath, err := ex.renderConfig(ws, lang, runPhase(lang))
 	if err != nil {
 		t.Fatalf("renderConfig: %v", err)
@@ -333,7 +334,7 @@ func TestRenderConfigCompilePhase(t *testing.T) {
 	}
 	defer ws.Cleanup()
 
-	lang := DefaultLanguages()["c"]
+	lang := languages.DefaultLanguages()["c"]
 	cfgPath, err := ex.renderConfig(ws, lang, compilePhase(lang))
 	if err != nil {
 		t.Fatalf("renderConfig: %v", err)
@@ -358,7 +359,7 @@ func TestRenderConfigCompilePhase(t *testing.T) {
 // TestLanguageRegistry ensures every language is registered and renders a
 // valid-looking run config with the expected source file and executable.
 func TestLanguageRegistry(t *testing.T) {
-	langs := DefaultLanguages()
+	langs := languages.DefaultLanguages()
 
 	want := map[string]struct {
 		srcFile string
@@ -413,7 +414,7 @@ func TestRenderConfigRunEnv(t *testing.T) {
 	}
 	defer ws.Cleanup()
 
-	lang := DefaultLanguages()["go"]
+	lang := languages.DefaultLanguages()["go"]
 	cfgPath, err := ex.renderConfig(ws, lang, runPhase(lang))
 	if err != nil {
 		t.Fatalf("renderConfig: %v", err)
@@ -428,6 +429,80 @@ func TestRenderConfigRunEnv(t *testing.T) {
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("rendered go run config missing %q\n--- config ---\n%s", want, cfg)
+		}
+	}
+}
+
+// TestDetectJavaMain verifies the public-class detection used to satisfy
+// javac's filename rule for arbitrary class names.
+func TestDetectJavaMain(t *testing.T) {
+	cases := []struct {
+		code string
+		want string
+	}{
+		{"public class NQueens {", "NQueens"},
+		{"public final class Solution {", "Solution"},
+		{"public abstract class Solver {", "Solver"},
+		{"import java.util.*;\npublic class HelloWorld {", "HelloWorld"},
+		// No public class → fallback to Main.
+		{"class Helper { }\nclass Main { public static void main(String[] a) {} }", "Main"},
+		// Invalid identifiers are cut at the identifier boundary but stay safe.
+		{"public class A;B {", "A"},
+		// Commented-out declarations must not be detected.
+		{"// public class commented {", "Main"},
+		// Indented declarations are still found.
+		{"  public class Indented {", "Indented"},
+	}
+	for _, tc := range cases {
+		if got := detectJavaMain(tc.code); got != tc.want {
+			t.Errorf("detectJavaMain(%q) = %q, want %q", tc.code, got, tc.want)
+		}
+	}
+}
+
+// TestJavaClassDetectionEndToEnd verifies a non-Main public class gets
+// compiled and run as its own class name.
+func TestJavaClassDetectionEndToEnd(t *testing.T) {
+	t.Setenv("FAKE_COMPILE_EXIT", "0")
+	t.Setenv("FAKE_STDOUT", "92\n")
+	ex, _ := newTestExecutor(t, nil)
+
+	res := ex.Execute(context.Background(), job("java",
+		"public class NQueens {\n    public static void main(String[] a) { System.out.println(\"92\"); }\n}"))
+	if res.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr %q)", res.ExitCode, res.Stderr)
+	}
+	if res.Stdout != "92\n" {
+		t.Fatalf("stdout = %q, want %q", res.Stdout, "92\n")
+	}
+}
+
+// TestJailPathInjected verifies every phase renders with a usable PATH —
+// without it gcc fails at the link step with "cannot find 'ld'".
+func TestJailPathInjected(t *testing.T) {
+	ex, _ := newTestExecutor(t, nil)
+
+	langs := []string{"python", "go", "c", "cpp", "java", "javascript", "bash"}
+	for _, name := range langs {
+		lang := languages.DefaultLanguages()[name]
+
+		ws, err := NewWorkspace(t.TempDir(), "cfg-test-"+name)
+		if err != nil {
+			t.Fatalf("NewWorkspace(%s): %v", name, err)
+		}
+		defer ws.Cleanup()
+
+		ph := runPhase(lang)
+		if lang.CompilePath != "" {
+			ph = compilePhase(lang)
+		}
+		cfgPath, err := ex.renderConfig(ws, lang, ph)
+		if err != nil {
+			t.Fatalf("renderConfig(%s): %v", name, err)
+		}
+		data, _ := os.ReadFile(cfgPath)
+		if !strings.Contains(string(data), `envar: "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"`) {
+			t.Errorf("%s config missing jail PATH\n--- config ---\n%s", name, data)
 		}
 	}
 }

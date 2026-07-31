@@ -28,7 +28,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     # nsjail runtime deps
     libprotobuf32t64 libnl-route-3-200 libstdc++6 \
     # language runtimes registered in internal/worker/language.go
-    python3 bash nodejs golang-go gcc g++ libc6-dev default-jdk-headless \
+    python3 bash nodejs golang-go gcc g++ binutils libc6-dev default-jdk-headless \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /tmp/minos && chmod 700 /tmp/minos
 

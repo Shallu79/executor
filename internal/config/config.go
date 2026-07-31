@@ -133,3 +133,46 @@ func envDur(key string, def time.Duration) time.Duration {
 	}
 	return def
 }
+
+type APIConfig struct {
+	ListenAddr    string        // LISTEN_ADDR — where the HTTP server binds
+	APIKey        string        // API_KEY — shared secret used as the submitter identity
+	RedisAddr     string        // REDIS_ADDR
+	RedisPassword string        // REDIS_PASSWORD
+	RedisDB       int           // REDIS_DB
+	QueueKey      string        // MINOS_QUEUE
+	ResultPrefix  string        // MINOS_RESULT_PREFIX
+	ResultTTL     time.Duration // RESULT_TTL
+	MaxCodeSize   int           // MAX_CODE_SIZE — bytes
+	MaxStdinSize  int           // MAX_STDIN_SIZE — bytes
+
+	// ExecutionTimeout is how long POST /execute blocks waiting for the
+	// worker's result before returning 504. Must exceed the worst-case
+	// worker runtime (compile + run + 2s slack per phase).
+	ExecutionTimeout time.Duration // EXECUTION_TIMEOUT
+}
+
+// LoadAPI reads API configuration from the environment. The API key is
+// mandatory for now (single key, mapped to users later by the auth service).
+func LoadAPI() (APIConfig, error) {
+	c := APIConfig{
+		ListenAddr:       envStr("LISTEN_ADDR", ":8080"),
+		APIKey:           envStr("API_KEY", "DEMO_API_KEY"),
+		RedisAddr:        envStr("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:    envStr("REDIS_PASSWORD", ""),
+		RedisDB:          envInt("REDIS_DB", 0),
+		QueueKey:         envStr("MINOS_QUEUE", "minos:queue"),
+		ResultPrefix:     envStr("MINOS_RESULT_PREFIX", "minos:result:"),
+		ResultTTL:        envDur("RESULT_TTL", 5*time.Minute),
+		MaxCodeSize:      envInt("MAX_CODE_SIZE", 65536),
+		MaxStdinSize:     envInt("MAX_STDIN_SIZE", 1024),
+		ExecutionTimeout: envDur("EXECUTION_TIMEOUT", 30*time.Second),
+	}
+	if c.APIKey == "" {
+		return c, fmt.Errorf("API_KEY is required (set it via environment)")
+	}
+	if c.ListenAddr == "" {
+		c.ListenAddr = ":8080"
+	}
+	return c, nil
+}

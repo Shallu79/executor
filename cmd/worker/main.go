@@ -33,7 +33,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	rdb := redisq.NewClient(cfg)
+	rdb := redisq.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	defer rdb.Close()
 
 	if err := redisq.PingWithRetry(ctx, rdb, 10, time.Second); err != nil {
