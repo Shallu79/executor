@@ -1,0 +1,45 @@
+# Minos worker image: nsjail + Go worker + language runtimes.
+# Run with: cap_add SYS_ADMIN, security_opt apparmor/seccomp unconfined
+# (see docker-compose.yml — same requirements as the proven tested/ setup).
+
+# ---- Stage 1: build nsjail (identical to the proven tested/Dockerfile) ----
+FROM ubuntu:24.04 AS nsjail-build
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    autoconf bison flex gcc g++ git libprotobuf-dev libnl-route-3-dev \
+    libtool make pkg-config protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
+    cd /tmp/nsjail && \
+    make && \
+    mv nsjail /nsjail-bin && \
+    rm -rf /tmp/nsjail
+
+# ---- Stage 2: build the worker binary ----
+FROM golang:1.25-bookworm AS worker-build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/minos-worker ./cmd/worker
+
+# ---- Stage 3: runtime ----
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    # nsjail runtime deps
+    libprotobuf32t64 libnl-route-3-200 libstdc++6 \
+    # language runtimes registered in internal/worker/language.go
+    python3 bash nodejs golang-go gcc g++ libc6-dev default-jdk-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/minos && chmod 700 /tmp/minos
+
+COPY --from=nsjail-build /nsjail-bin /usr/local/bin/nsjail
+COPY --from=worker-build /out/minos-worker /usr/local/bin/minos-worker
+COPY deploy/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV REDIS_ADDR=redis:6379 \
+    CONCURRENCY=4 \
+    TMP_DIR=/tmp/minos \
+    NSJAIL_BIN=/usr/local/bin/nsjail
+
+ENTRYPOINT ["/entrypoint.sh"]

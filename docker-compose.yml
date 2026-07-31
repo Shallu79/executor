@@ -1,0 +1,46 @@
+# Dev/test stack: Redis broker + worker (with nsjail sandbox).
+# The API gateway will join this compose file later; for now jobs can be
+# pushed straight into minos:queue with redis-cli.
+services:
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+      --save ""
+      --appendonly no
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.worker
+    # nsjail needs these to create namespaces (same as tested/docker-compose.yml)
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+    environment:
+      REDIS_ADDR: redis:6379
+      CONCURRENCY: "4"
+      TMP_DIR: /tmp/minos
+      NSJAIL_BIN: /usr/local/bin/nsjail
+      LOG_LEVEL: info
+      # Jail network isolation: off by default to match the proven tested/
+      # config. Set to "true" on runc/bare-metal for a network-less jail.
+      NSJAIL_CLONE_NEWNET: "false"
+      NSJAIL_CLONE_NEWPID: "false"
+      NSJAIL_CLONE_NEWCGROUP: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
