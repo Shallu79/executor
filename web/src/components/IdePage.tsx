@@ -80,7 +80,7 @@ export default function IdePage() {
     <Button
       onClick={run}
       disabled={busy || !apiKey}
-      className="shrink-0 rounded-full !px-4"
+      className="shrink-0 rounded-full px-4!"
       title={apiKey ? 'Run' : 'Paste an API key first'}
     >
       {busy ? (
@@ -121,7 +121,7 @@ export default function IdePage() {
       >
         <div className="hidden items-center gap-2 md:flex">
           <Dropdown
-            className="shrink-0 !w-40"
+            className="shrink-0 w-40!"
             value={lang.id}
             onChange={pickLang}
             options={LANGS.map((l) => ({ value: l.id, label: l.label }))}
@@ -133,7 +133,7 @@ export default function IdePage() {
       {/* Mobile toolbar */}
       <div className="flex items-center gap-2 border-b border-edge bg-panel-2 px-3 py-2 md:hidden">
         <Dropdown
-          className="shrink-0 !w-32"
+          className="shrink-0 w-32!"
           value={lang.id}
           onChange={pickLang}
           options={LANGS.map((l) => ({ value: l.id, label: l.label }))}

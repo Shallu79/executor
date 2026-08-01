@@ -44,7 +44,7 @@ export default function AuthScreen() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-brand-2 text-2xl font-black text-white shadow-xl shadow-green-950/50">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand to-brand-2 text-2xl font-black text-white shadow-xl shadow-green-950/50">
             M
           </div>
           <h1 className="text-2xl font-bold text-ink">Minos</h1>
@@ -117,12 +117,12 @@ export default function AuthScreen() {
 
         <div className="mt-4 flex items-center gap-2">
           <input
-            className={`${inputCls} !py-1.5 text-xs`}
+            className={`${inputCls} py-1.5! text-xs`}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="API base URL"
           />
-          <Button variant="ghost" className="!py-1.5 text-xs" onClick={() => setBaseURL(url)}>
+          <Button variant="ghost" className="py-1.5! text-xs" onClick={() => setBaseURL(url)}>
             Save
           </Button>
         </div>

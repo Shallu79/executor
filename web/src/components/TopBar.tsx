@@ -134,7 +134,7 @@ export default function TopBar({
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
         {children}
 
-        <Button variant="ghost" className="hidden shrink-0 !py-1.5 text-sm md:inline-flex" onClick={openKeys}>
+        <Button variant="ghost" className="hidden shrink-0 py-1.5! text-sm md:inline-flex" onClick={openKeys}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="8" cy="15" r="4" />
             <path d="M10.9 12.1 20 3M15 8l3 3M17 6l2 2" />
@@ -146,16 +146,16 @@ export default function TopBar({
           <div className="hidden shrink-0 sm:block">
             <button
               onClick={() => navigate('/profile')}
-              className="flex max-w-[180px] items-center gap-2 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm text-ink transition-colors hover:border-muted/40"
+              className="flex max-w-45 items-center gap-2 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm text-ink transition-colors hover:border-muted/40"
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-[10px] font-bold text-white">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-linear-to-br from-brand to-brand-2 text-[10px] font-bold text-white">
                 {(email || '?').slice(0, 1).toUpperCase()}
               </span>
               <span className="hidden truncate md:block">{email || 'Account'}</span>
             </button>
           </div>
         ) : (
-          <Button onClick={() => navigate('/auth')} className="shrink-0 !py-1.5 text-sm">
+          <Button onClick={() => navigate('/auth')} className="shrink-0 py-1.5! text-sm">
             Log in
           </Button>
         )}
