@@ -41,11 +41,22 @@ The worker starts a job by rendering a per-phase nsjail config (`compile`, `run`
 
 Results carry the measured wall-clock time (`time_ms`), which is what the benchmark below reports.
 
-### Benchmark: spawn + execute time (ms)
+### Benchmark: Spawn + Execute Time (ms)
 
-![Time comparison: Docker container vs nsjail/isolate, execution time in ms for both architectures](./images/time-docker-vs-isolate.png)
+This benchmark compares the total execution time (spawn + execute, in milliseconds) between **Docker containers** and **nsjail/isolate** environments across architectures.
 
-> Placeholder: drop the chart of wall-clock `time_ms` for an identical job (e.g. Python `print` / a compile-heavy C program) under both architectures here. Expected: Docker adds container lifecycle overhead per run that is negligible for long jobs but dominates short ones.
+---
+
+#### ⚡ Nsjail
+The following metrics reflect the spawn and execution times when using `isolate`:
+
+<img width="720" alt="Isolate benchmark metrics" src="https://github.com/user-attachments/assets/401b33f2-68bb-4d57-9e77-07f2158ac148" />
+
+#### 🐳 Docker Spawns
+The following metrics reflect the spawn and execution times when using standard `docker` containers:
+
+<img width="670" alt="Docker benchmark metrics" src="https://github.com/user-attachments/assets/08569d8e-8be1-45df-ba76-5e2ec5af50e8" />
+
 
 ---
 
