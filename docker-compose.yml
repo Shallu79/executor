@@ -44,7 +44,7 @@ services:
       - seccomp:unconfined
     environment:
       REDIS_ADDR: redis:6379
-      CONCURRENCY: "4"
+      CONCURRENCY: ${CONCURRENCY:-4}
       TMP_DIR: /tmp/minos
       NSJAIL_BIN: /usr/local/bin/nsjail
       LOG_LEVEL: info

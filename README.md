@@ -60,6 +60,41 @@ The following metrics reflect the spawn and execution times when using standard 
 
 ---
 
+## Load testing & throughput
+
+Benchmarked with [Grafana k6](https://k6.io) against the synchronous `POST /api/v1/execute` path. Scripts: `scripts/k6-loadtest.js` (ramping VUs) and `scripts/k6-throughput.js` (arrival-rate, fixed requests/second).
+
+### Single worker baseline (`CONCURRENCY=4`, 1 nsjail pool)
+
+| Job workload | Peak completed jobs/s | Per slot | Notes |
+| --- | --- | --- | --- |
+| Python `print` (~16 ms) | ~208 jobs/s | ~52 jobs/s | plateaus at 100-300 VUs; 0% errors |
+| C compile + run (~5 ms run) | ~76 jobs/s | ~19 jobs/s | compile phase occupies the slot |
+| Python `sleep(2)` | ~1-2 jobs/s | ~0.5 jobs/s | worker-bound; 504s on overload |
+
+### High-throughput attempt (arrival-rate, target 1,500 jobs/s)
+
+| Run | Jobs completed | Success rate | Dropped iterations | Sustained throughput | p(95) latency |
+| --- | --- | --- | --- | --- | --- |
+| 1 worker x 4 slots | 44,213 | 100% | 120,786 | ~307 jobs/s | 9.1 s |
+| 8 workers x 16 slots | 41,513 | 100% | 123,486 | ~287 jobs/s | 9.2 s |
+
+### Findings
+
+- The API/queue path sustains roughly **~300 jobs/s** through the sync wait and absorbs bursts without losing a job (0% failures in every run). Overload shows up as latency growth, not dropped work.
+- Scaling the worker pool from 4 to 128 slots did **not** raise the ceiling in the sync benchmark. That points at the synchronous `BLPOP` result-wait path and the per-job Postgres writes in `POST /execute` (history insert + result update) as the binding constraints once the worker pool has spare capacity.
+- When queue wait exceeds `EXECUTION_TIMEOUT` (30 s), `POST /execute` returns **504 + `job_id`** with `status: "processing"`. Jobs are never lost; the client polls `GET /jobs/:id` to collect the result.
+
+### Reproduce
+
+```bash
+k6 run scripts/k6-loadtest.js              # ramping VUs to 20
+PEAK_VUS=100 k6 run scripts/k6-loadtest.js # heavier VU ramp
+RATE=1500 k6 run scripts/k6-throughput.js  # fixed 1,500 jobs/s arrival
+```
+
+---
+
 ## Scalability on AWS
 
 Minos is built to scale horizontally and to stay secure while it does. The two services that need capacity (the API and the workers) scale independently.
