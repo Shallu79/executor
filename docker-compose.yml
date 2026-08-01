@@ -1,19 +1,32 @@
-# Dev/test stack: Redis broker + worker (with nsjail sandbox).
-# The API gateway will join this compose file later; for now jobs can be
-# pushed straight into minos:queue with redis-cli.
+# Dev/test stack: Redis + Postgres (internal bridge only), worker + API.
+# Only the API is reachable from the host (127.0.0.1:8080).
 services:
   redis:
     image: redis:7-alpine
+    # No host ports — reachable only by service name on the bridge network.
     command: >
       redis-server
       --maxmemory 256mb
       --maxmemory-policy volatile-lru
       --save ""
       --appendonly no
-    ports:
-      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-minos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minos-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-minos}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minos} -d ${POSTGRES_DB:-minos}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -54,8 +67,16 @@ services:
     environment:
       LISTEN_ADDR: :8080
       REDIS_ADDR: redis:6379
-      API_KEY: ${API_KEY:-dev-secret-key}
+      DATABASE_URL: postgres://${POSTGRES_USER:-minos}:${POSTGRES_PASSWORD:-minos-secret}@postgres:5432/${POSTGRES_DB:-minos}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      SUBMISSION_RETENTION_DAYS: ${SUBMISSION_RETENTION_DAYS:-30}
+      CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-1h}
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"minos/internal/models"
+	"minos/internal/store"
 )
 
 // Response envelopes.
@@ -41,9 +43,8 @@ type (
 var jobIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 // execute validates a submission, pushes it to the queue, then BLOCKS on the
-// result key until the worker produces a result — the client gets stdout,
-// stderr, exit code and timing in the same HTTP response (synchronous model,
-// ARCHITECTURE.md sections 3 & 5.1).
+// result key until the worker produces a result the client gets stdout,
+// stderr, exit code and timing in the same HTTP response
 //
 // If the wait window (EXECUTION_TIMEOUT) expires — slow worker, queue
 // backlog — it returns 504 with the job_id so the client can poll
@@ -67,12 +68,29 @@ func (s *Server) execute(c *gin.Context) {
 	}
 
 	job := models.Job{
-		ID:        uuid.NewString(),
-		Language:  req.Language,
-		Code:      req.Code,
-		Stdin:     req.Stdin,
-		Submitter: c.GetString("api_key"),
-		Created:   time.Now().UTC(),
+		ID:       uuid.NewString(),
+		Language: req.Language,
+		Code:     req.Code,
+		Stdin:    req.Stdin,
+		UserID:   c.GetString("user_id"),
+		Created:  time.Now().UTC(),
+	}
+
+	// Persist a history row immediately so submissions appear even if the
+	// job never completes.
+	sub, err := s.store.CreateSubmission(c.Request.Context(), models.Submission{
+		ID:        job.ID,
+		UserID:    job.UserID,
+		Language:  job.Language,
+		Code:      job.Code,
+		Stdin:     job.Stdin,
+		Status:    "queued",
+		CreatedAt: job.Created,
+	})
+	if err != nil {
+		s.log.Error("persist submission failed", "job_id", job.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal error"})
+		return
 	}
 
 	if err := s.queue.Push(c.Request.Context(), job); err != nil {
@@ -85,7 +103,7 @@ func (s *Server) execute(c *gin.Context) {
 		"job_id", job.ID,
 		"language", job.Language,
 		"code_size", len(job.Code),
-		"submitter", job.Submitter,
+		"user_id", job.UserID,
 	)
 
 	// Block-wait for the worker's result on the same request. c.Request.Context()
@@ -104,6 +122,11 @@ func (s *Server) execute(c *gin.Context) {
 			Error:  "execution timed out, poll GET /api/v1/jobs/" + job.ID,
 		})
 		return
+	}
+
+	if err := s.store.UpdateSubmissionResult(c.Request.Context(), sub.ID, "completed",
+		res.ExitCode, res.Stdout, res.Stderr, res.TimeMs); err != nil {
+		s.log.Warn("update submission result failed", "job_id", job.ID, "error", err)
 	}
 
 	s.log.Info("job completed",
@@ -126,7 +149,8 @@ func (s *Server) execute(c *gin.Context) {
 }
 
 // getJob returns the execution result for a submitted job, or "processing"
-// while the worker is still running it (result key not yet present).
+// while the worker is still running it (result key not yet present). When a
+// result is found, it also back-fills the persisted history row.
 func (s *Server) getJob(c *gin.Context) {
 	id := c.Param("id")
 	if !jobIDRe.MatchString(id) {
@@ -143,6 +167,12 @@ func (s *Server) getJob(c *gin.Context) {
 	if !found {
 		c.JSON(http.StatusOK, JobResponse{JobID: id, Status: "processing"})
 		return
+	}
+
+	// Back-fill history for the 504-then-poll path.
+	if err := s.store.UpdateSubmissionResult(c.Request.Context(), id, "completed",
+		res.ExitCode, res.Stdout, res.Stderr, res.TimeMs); err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.log.Warn("backfill submission result failed", "job_id", id, "error", err)
 	}
 
 	c.JSON(http.StatusOK, JobResponse{

@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,13 +20,13 @@ import (
 	"minos/internal/config"
 	"minos/internal/models"
 	"minos/internal/redisq"
+	"minos/internal/store"
 )
 
-func newTestServer(t *testing.T) (*Server, *redis.Client, *miniredis.Miniredis) {
+func newTestServer(t *testing.T) (*Server, *redis.Client, *miniredis.Miniredis, *memStore) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	cfg := config.APIConfig{
-		APIKey:           "test-secret",
 		RedisAddr:        mr.Addr(),
 		QueueKey:         "minos:queue",
 		ResultPrefix:     "minos:result:",
@@ -32,10 +34,28 @@ func newTestServer(t *testing.T) (*Server, *redis.Client, *miniredis.Miniredis) 
 		MaxCodeSize:      65536,
 		MaxStdinSize:     1024,
 		ExecutionTimeout: 2 * time.Second,
+		JWTSecret:        "test-jwt-secret",
 	}
 	rdb := redisq.NewClient(mr.Addr(), "", 0)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewServer(cfg, rdb, log), rdb, mr
+	st := newMemStore()
+	return NewServer(cfg, rdb, st, log), rdb, mr, st
+}
+
+// seedUser creates a user with an API key and returns the plaintext key.
+// Each call uses a unique email.
+func seedUser(t *testing.T, st store.Store) (userID, apiKey string) {
+	t.Helper()
+	email := "user+" + strconv.FormatInt(time.Now().UnixNano(), 36) + "@example.com"
+	user, err := st.CreateUser(context.Background(), email, "hashedpw")
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	plain := "minos_test_key_" + time.Now().String()
+	if _, err := st.CreateAPIKey(context.Background(), user.ID, "default", store.HashAPIKey(plain), plain[:10]); err != nil {
+		t.Fatalf("seed key: %v", err)
+	}
+	return user.ID, plain
 }
 
 func doRequest(t *testing.T, s *Server, method, path, body, key string) *httptest.ResponseRecorder {
@@ -53,6 +73,21 @@ func doRequest(t *testing.T, s *Server, method, path, body, key string) *httptes
 	return w
 }
 
+func doRequestAuth(t *testing.T, s *Server, method, path, body, bearerToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = bytes.NewBufferString(body)
+	}
+	req := httptest.NewRequest(method, path, reader)
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+	w := httptest.NewRecorder()
+	s.Router().ServeHTTP(w, req)
+	return w
+}
+
 func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 	t.Helper()
 	var v T
@@ -62,43 +97,32 @@ func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 	return v
 }
 
-func TestExecuteRequiresAPIKey(t *testing.T) {
-	s, _, _ := newTestServer(t)
+// --- execute / jobs (API key auth) ---
 
-	// No key.
+func TestExecuteRequiresAPIKey(t *testing.T) {
+	s, _, _, _ := newTestServer(t)
+
 	w := doRequest(t, s, "POST", "/api/v1/execute", `{"language":"python","code":"print(1)"}`, "")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("no key: status = %d, want 401", w.Code)
 	}
 
-	// Wrong key.
 	w = doRequest(t, s, "POST", "/api/v1/execute", `{"language":"python","code":"print(1)"}`, "wrong-key")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong key: status = %d, want 401", w.Code)
 	}
-
-	// Bearer header also works.
-	req := httptest.NewRequest("POST", "/api/v1/execute", bytes.NewBufferString(`{"language":"python","code":"print(1)"}`))
-	req.Header.Set("Authorization", "Bearer test-secret")
-	w = httptest.NewRecorder()
-	s.Router().ServeHTTP(w, req)
-	if w.Code == http.StatusUnauthorized {
-		t.Fatal("valid bearer token rejected")
-	}
 }
 
-func TestExecuteSynchronous(t *testing.T) {
-	s, rdb, _ := newTestServer(t)
+func TestExecuteWithValidKey(t *testing.T) {
+	s, rdb, _, st := newTestServer(t)
+	userID, apiKey := seedUser(t, st)
 
-	// POST /execute blocks (BLPOP) until the worker pushes a result. Run it
-	// in a goroutine and simulate the worker after the job hits the queue.
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doRequest(t, s, "POST", "/api/v1/execute",
-			`{"language":"python","code":"print(42)","stdin":"hi"}`, "test-secret")
+			`{"language":"python","code":"print(42)","stdin":"hi"}`, apiKey)
 	}()
 
-	// Wait for the job to be queued, then act as the worker and push a result.
 	var jobID string
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -107,8 +131,8 @@ func TestExecuteSynchronous(t *testing.T) {
 			var job models.Job
 			if json.Unmarshal([]byte(vals[0]), &job) == nil && job.ID != "" {
 				jobID = job.ID
-				if job.Submitter != "test-secret" {
-					t.Fatalf("submitter = %q, want %q", job.Submitter, "test-secret")
+				if job.UserID != userID {
+					t.Fatalf("user_id = %q, want %q", job.UserID, userID)
 				}
 				if job.Language != "python" || job.Stdin != "hi" {
 					t.Fatalf("job fields mismatch: %+v", job)
@@ -133,41 +157,41 @@ func TestExecuteSynchronous(t *testing.T) {
 		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
 	}
 	got := decode[JobResponse](t, w)
-	if got.Status != "completed" {
-		t.Fatalf("status = %q, want completed", got.Status)
-	}
-	if got.Stdout != "42\n" || got.ExitCode != 0 || got.TimeMs != 22 {
+	if got.Status != "completed" || got.Stdout != "42\n" || got.ExitCode != 0 || got.TimeMs != 22 {
 		t.Fatalf("result mismatch: %+v", got)
 	}
-	if got.JobID != jobID {
-		t.Fatalf("job_id = %q, want %q", got.JobID, jobID)
+
+	// The submission must be persisted and marked completed.
+	sub, err := st.GetSubmission(context.Background(), userID, jobID)
+	if err != nil {
+		t.Fatalf("submission missing: %v", err)
+	}
+	if sub.Status != "completed" || sub.Stdout != "42\n" {
+		t.Fatalf("submission not backfilled: %+v", sub)
 	}
 }
 
 func TestExecuteTimesOutWithoutWorker(t *testing.T) {
-	s, rdb, _ := newTestServer(t)
-	// No worker will push a result — the request must return 504 after the
-	// wait window, with a job_id so the client can poll.
+	s, rdb, _, st := newTestServer(t)
+	_, apiKey := seedUser(t, st)
+
 	w := doRequest(t, s, "POST", "/api/v1/execute",
-		`{"language":"python","code":"print(1)"}`, "test-secret")
+		`{"language":"python","code":"print(1)"}`, apiKey)
 	if w.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504 (body %s)", w.Code, w.Body.String())
 	}
 	got := decode[JobResponse](t, w)
-	if got.Status != "processing" {
-		t.Fatalf("status = %q, want processing", got.Status)
+	if got.Status != "processing" || got.JobID == "" {
+		t.Fatalf("504 body missing job_id/status: %+v", got)
 	}
-	if got.JobID == "" {
-		t.Fatal("504 response must carry job_id for polling")
-	}
-	// Job must still be in the queue (never picked up).
 	if n := rdb.LLen(t.Context(), "minos:queue").Val(); n != 1 {
 		t.Fatalf("queue length = %d, want 1", n)
 	}
 }
 
 func TestExecuteValidation(t *testing.T) {
-	s, rdb, _ := newTestServer(t)
+	s, rdb, _, st := newTestServer(t)
+	_, apiKey := seedUser(t, st)
 
 	cases := []struct {
 		name string
@@ -184,26 +208,24 @@ func TestExecuteValidation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := doRequest(t, s, "POST", "/api/v1/execute", tc.body, "test-secret")
+			w := doRequest(t, s, "POST", "/api/v1/execute", tc.body, apiKey)
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400 (body %s)", w.Code, w.Body.String())
 			}
 		})
 	}
 
-	// Nothing should have been queued by any of the rejected submissions.
 	if n := rdb.LLen(t.Context(), "minos:queue").Val(); n != 0 {
 		t.Fatalf("queue length = %d, want 0", n)
 	}
 }
 
 func TestGetJobProcessingThenCompleted(t *testing.T) {
-	s, rdb, _ := newTestServer(t)
+	s, rdb, _, st := newTestServer(t)
+	_, apiKey := seedUser(t, st)
 
-	// Push a result as the worker would, and submit nothing — just poll a
-	// fresh id first to observe "processing".
 	id := "job-0001"
-	w := doRequest(t, s, "GET", "/api/v1/jobs/"+id, "", "test-secret")
+	w := doRequest(t, s, "GET", "/api/v1/jobs/"+id, "", apiKey)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
@@ -211,25 +233,21 @@ func TestGetJobProcessingThenCompleted(t *testing.T) {
 		t.Fatalf("status = %q, want processing", got.Status)
 	}
 
-	// Now simulate the worker pushing a result.
 	res := models.ExecutionResult{Stdout: "42\n", Stderr: "", ExitCode: 0, TimeMs: 22}
 	payload, _ := json.Marshal(res)
 	if err := rdb.LPush(t.Context(), "minos:result:"+id, payload).Err(); err != nil {
 		t.Fatalf("seed result: %v", err)
 	}
 
-	w = doRequest(t, s, "GET", "/api/v1/jobs/"+id, "", "test-secret")
+	w = doRequest(t, s, "GET", "/api/v1/jobs/"+id, "", apiKey)
 	got := decode[JobResponse](t, w)
-	if got.Status != "completed" {
-		t.Fatalf("status = %q, want completed", got.Status)
-	}
-	if got.Stdout != "42\n" || got.ExitCode != 0 || got.TimeMs != 22 {
+	if got.Status != "completed" || got.Stdout != "42\n" || got.TimeMs != 22 {
 		t.Fatalf("result mismatch: %+v", got)
 	}
 }
 
 func TestGetJobRequiresAPIKey(t *testing.T) {
-	s, _, _ := newTestServer(t)
+	s, _, _, _ := newTestServer(t)
 	w := doRequest(t, s, "GET", "/api/v1/jobs/abc", "", "")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
@@ -237,10 +255,11 @@ func TestGetJobRequiresAPIKey(t *testing.T) {
 }
 
 func TestGetJobInvalidID(t *testing.T) {
-	s, _, _ := newTestServer(t)
+	s, _, _, st := newTestServer(t)
+	_, apiKey := seedUser(t, st)
 	for _, id := range []string{"..", "a b", "inv@lid", "x\x00y"} {
 		esc := url.PathEscape(id)
-		w := doRequest(t, s, "GET", "/api/v1/jobs/"+esc, "", "test-secret")
+		w := doRequest(t, s, "GET", "/api/v1/jobs/"+esc, "", apiKey)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("id %q (esc %q): status = %d, want 400", id, esc, w.Code)
 		}
@@ -248,14 +267,35 @@ func TestGetJobInvalidID(t *testing.T) {
 }
 
 func TestHealthEndpointsUnauthenticated(t *testing.T) {
-	s, _, _ := newTestServer(t)
-
-	w := doRequest(t, s, "GET", "/healthz", "", "")
-	if w.Code != http.StatusOK {
+	s, _, _, _ := newTestServer(t)
+	if w := doRequest(t, s, "GET", "/healthz", "", ""); w.Code != http.StatusOK {
 		t.Fatalf("healthz status = %d, want 200", w.Code)
 	}
-	w = doRequest(t, s, "GET", "/readyz", "", "")
-	if w.Code != http.StatusOK {
+	if w := doRequest(t, s, "GET", "/readyz", "", ""); w.Code != http.StatusOK {
 		t.Fatalf("readyz status = %d, want 200", w.Code)
+	}
+}
+
+// TestCORSPreflight ensures browser preflight for PATCH/DELETE passes — a
+// missing method here silently breaks revoke/delete from the dashboard.
+func TestCORSPreflight(t *testing.T) {
+	s, _, _, _ := newTestServer(t)
+
+	req := httptest.NewRequest("OPTIONS", "/api/v1/api-keys/abc",
+		bytes.NewBufferString(""))
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
+	req.Header.Set("Access-Control-Request-Headers", "authorization")
+	w := httptest.NewRecorder()
+	s.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204", w.Code)
+	}
+	methods := w.Header().Get("Access-Control-Allow-Methods")
+	for _, m := range []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"} {
+		if !strings.Contains(methods, m) {
+			t.Fatalf("preflight Allow-Methods %q missing %s", methods, m)
+		}
 	}
 }

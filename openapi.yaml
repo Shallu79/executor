@@ -1,0 +1,565 @@
+openapi: 3.0.3
+info:
+  title: Minos Exec Engine API
+  description: |
+    Secure multi-language code execution engine. Accounts and API-key management
+    live here, plus job submission and result retrieval.
+    - **Account endpoints** authenticate with a JWT session token (`Authorization: Bearer <token>`) issued by signin.
+    - **Execution endpoints** authenticate with a user API key (`X-API-Key: <key>`), created after signup.
+    - Jobs are executed synchronously: `POST /execute` blocks until the worker finishes and returns the
+      result in the same response. If the wait window (`EXECUTION_TIMEOUT`) expires it returns `504` with a
+      `job_id`; poll `GET /jobs/{id}` until `status == "completed"`.
+  version: 1.0.0
+  contact:
+    name: Minos
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local dev (docker compose)
+
+tags:
+  - name: auth
+    description: Signup, signin, current user
+  - name: api-keys
+    description: Manage API keys used to submit jobs
+  - name: submissions
+    description: Job history
+  - name: execution
+    description: Submit code and fetch results
+  - name: health
+
+paths:
+  /api/v1/auth/signup:
+    post:
+      tags: [auth]
+      summary: Create an account
+      description: Hashes the password and auto-issues a first API key so the account can execute immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, api_key]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  api_key:
+                    type: string
+                    description: The account's first API key (shown once).
+                    example: minos_4f8e9a2b7c6d5e4f3a2b1c0d
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/signin:
+    post:
+      tags: [auth]
+      summary: Sign in
+      description: Returns a JWT session token for the account endpoints.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token:
+                    type: string
+                    description: 'Session token (JWT, 7-day expiry). Use as `Authorization: Bearer <token>`.'
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/me:
+    get:
+      tags: [auth]
+      summary: Current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/api-keys:
+    get:
+      tags: [api-keys]
+      summary: List API keys
+      description: All keys for the authenticated user. The plaintext key is never returned here — only the display prefix.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_keys]
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKey'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [api-keys]
+      summary: Create an API key
+      description: The full plaintext key is returned exactly once.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Human-readable label, e.g. "ci".
+                  example: ci
+      responses:
+        '201':
+          description: Key created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_key, key]
+                properties:
+                  api_key:
+                    $ref: '#/components/schemas/APIKey'
+                  key:
+                    type: string
+                    description: The plaintext credential (show once, store the hash).
+                    example: minos_1a2b3c4d5e6f708192a3b4c5
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/api-keys/{id}:
+    parameters:
+      - $ref: '#/components/parameters/APIKeyID'
+    patch:
+      tags: [api-keys]
+      summary: Revoke / restore an API key
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revoked]
+              properties:
+                revoked:
+                  type: boolean
+                  description: true to revoke (submissions will 401), false to restore.
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [api-keys]
+      summary: Delete an API key
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions:
+    get:
+      tags: [submissions]
+      summary: Job history
+      description: The authenticated user's submissions, newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: History
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [submissions]
+                properties:
+                  submissions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Submission'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/submissions/{id}:
+    get:
+      tags: [submissions]
+      summary: Get one submission
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/execute:
+    post:
+      tags: [execution]
+      summary: Execute code
+      description: |
+        Validates the submission, pushes it to the queue, and blocks until the
+        worker produces a result. Returns the result in the same response.
+        On `EXECUTION_TIMEOUT` expiry it returns `504` with `job_id` and
+        `status: processing` — then poll `GET /api/v1/jobs/{id}`.
+      security:
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+      responses:
+        '200':
+          description: Execution finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '504':
+          description: Sync wait expired — job is still queued/processing, poll GET /api/v1/jobs/{id}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+
+  /api/v1/jobs/{id}:
+    get:
+      tags: [execution]
+      summary: Get job status / result
+      description: 'Returns the result once the worker has pushed it, otherwise `status: processing`.'
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status (processing) or completed result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness (Redis + Postgres reachable)
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not_ready
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 'User API key created after signup (or `Authorization: Bearer <api-key>`).'
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Session token from POST /api/v1/auth/signin.
+
+  parameters:
+    APIKeyID:
+      name: id
+      in: path
+      required: true
+      description: API key id
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid or missing API key
+
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: super-secret
+
+    User:
+      type: object
+      required: [id, email, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+
+    APIKey:
+      type: object
+      required: [id, name, prefix, revoked, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: First 10 chars of the key, for display only.
+          example: minos_4f8e9
+        revoked:
+          type: boolean
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    JobRequest:
+      type: object
+      required: [language, code]
+      properties:
+        language:
+          type: string
+          description: One of the supported languages.
+          enum: [python, javascript, go, c, cpp, java, bash]
+          example: python
+        code:
+          type: string
+          description: Source code, max 64 KiB, valid UTF-8, no null bytes.
+          example: print(42)
+        stdin:
+          type: string
+          description: Optional program input, max 1 KiB.
+          example: 1 2 3
+
+    JobResponse:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [processing, completed]
+        stdout:
+          type: string
+          example: "42\n"
+        stderr:
+          type: string
+          example: ""
+        exit_code:
+          type: integer
+          example: 0
+        time_ms:
+          type: integer
+          description: Wall time of the run phase (compiled languages exclude compile time).
+          example: 22
+        truncated:
+          type: boolean
+          description: True if stdout/stderr exceeded 64 KiB and was cut.
+        error:
+          type: string
+          description: Present only on 504 — explains the client should poll.
+          example: execution timed out, poll GET /api/v1/jobs/xxx
+
+    Submission:
+      type: object
+      required: [id, language, code, status, exit_code, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        language:
+          type: string
+        code:
+          type: string
+        stdin:
+          type: string
+        status:
+          type: string
+          enum: [queued, completed]
+        exit_code:
+          type: integer
+        stdout:
+          type: string
+        stderr:
+          type: string
+        time_ms:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Invalid payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
