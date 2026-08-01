@@ -1,5 +1,5 @@
-# Dev/test stack: Redis + Postgres (internal bridge only), worker + API.
-# Only the API is reachable from the host (127.0.0.1:8080).
+# Dev/test stack: Redis + Postgres (internal bridge only), worker, API + web UI.
+# Only the API (8080) and the web UI (3000) are reachable from the host.
 services:
   redis:
     image: redis:7-alpine
@@ -76,6 +76,21 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Web UI: static frontend served by Caddy. No proxy; the frontend calls the
+  # API directly (VITE_API_BASE) and the API's CORS middleware allows it.
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.web
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://127.0.0.1:8080}
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

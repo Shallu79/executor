@@ -1,17 +1,16 @@
 import axios from 'axios'
 import type { AxiosError } from 'axios'
 
-const BASE_KEY = 'minos_api_base'
 const TOKEN_KEY = 'minos_session_token'
 const NEW_KEY_KEY = 'minos_new_key'
 
+// API base URL comes from the build-time VITE_API_BASE env var (empty =
+// same-origin, e.g. served behind the nginx /api proxy). Falls back to the
+// local dev API when the var is not set. Not user-configurable at runtime.
 export function getBaseURL(): string {
-  return localStorage.getItem(BASE_KEY) || 'http://127.0.0.1:8080'
-}
-export function setBaseURL(url: string): void {
-  const clean = url.replace(/\/+$/, '')
-  localStorage.setItem(BASE_KEY, clean)
-  api.defaults.baseURL = clean
+  return import.meta.env.VITE_API_BASE === undefined
+    ? 'http://127.0.0.1:8080'
+    : import.meta.env.VITE_API_BASE
 }
 
 export function getSessionToken(): string | null {

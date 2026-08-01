@@ -138,8 +138,17 @@ This brings up:
 | `postgres` | Submission history, accounts, keys | internal only |
 | `worker` | nsjail executor + worker pool      | internal only |
 | `api`    | REST gateway                       | `http://127.0.0.1:8080` |
+| `web`    | Built React frontend (Caddy)       | `http://127.0.0.1:3000` |
 
-Only the API is exposed to the host (`127.0.0.1:8080`); Redis and Postgres stay on the internal bridge network.
+Only the API (`8080`) and the web UI (`3000`) are exposed to the host; Redis and Postgres stay on the internal bridge network. Caddy inside the `web` container just serves the static build (with SPA fallback). The frontend calls the API directly and the API's CORS middleware (`Access-Control-Allow-Origin: *`) allows it, so no reverse proxy is needed.
+
+By default the frontend is built with `VITE_API_BASE=http://127.0.0.1:8080` (the host-exposed API). To point it at a different API, export `VITE_API_BASE` before `docker compose up`:
+
+```bash
+VITE_API_BASE=https://api.example.com docker compose up -d --build web
+```
+
+The base URL is baked in at build time and is not user-configurable at runtime.
 
 ### 3. Verify it's up
 

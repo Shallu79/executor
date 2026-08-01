@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authApi, setBaseURL, getBaseURL, setSessionToken, setNewKey } from '../api'
+import { authApi, setSessionToken, setNewKey } from '../api'
 import { Button, Field, Spinner, inputCls } from './ui'
 
 type Mode = 'signin' | 'signup'
@@ -11,7 +11,6 @@ export default function AuthScreen() {
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [url, setUrl] = useState(() => getBaseURL())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -113,18 +112,6 @@ export default function AuthScreen() {
               {mode === 'signin' ? 'Sign in' : 'Create account'}
             </Button>
           </form>
-        </div>
-
-        <div className="mt-4 flex items-center gap-2">
-          <input
-            className={`${inputCls} py-1.5! text-xs`}
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="API base URL"
-          />
-          <Button variant="ghost" className="py-1.5! text-xs" onClick={() => setBaseURL(url)}>
-            Save
-          </Button>
         </div>
       </div>
     </div>
