@@ -1,4 +1,4 @@
-# Minos · Exec Engine
+# Executor · Exec Engine
 
 A secure, multi-language code execution engine. Users submit code (or an API key submits it for them), the job is queued, executed in a hardened sandbox, and stdout / stderr / exit code / timing are returned.
 
@@ -11,7 +11,7 @@ A secure, multi-language code execution engine. Users submit code (or an API key
 
 ## What it solves
 
-Running untrusted code on your own machine is dangerous. A single `fork bomb`, `rm -rf /`, or network exfiltration attempt is enough to compromise a host or leak data. Minos solves the problem of **"how do I run someone else's code safely, at scale, and measure it"**:
+Running untrusted code on your own machine is dangerous. A single `fork bomb`, `rm -rf /`, or network exfiltration attempt is enough to compromise a host or leak data. Executor solves the problem of **"how do I run someone else's code safely, at scale, and measure it"**:
 
 1. **Isolation**: each submission executes in an isolated sandbox with no access to the host, other users' files, or the network.
 2. **Resource control**: hard CPU, memory, process-count and output limits enforced by the kernel, so a runaway job cannot take the host down.
@@ -22,7 +22,7 @@ Running untrusted code on your own machine is dangerous. A single `fork bomb`, `
 
 ## Sandbox architecture: Docker containers vs. isolate-style sandboxes
 
-Minos isolates jobs at the **process/namespace level** (nsjail, the same family as the `isolate` tool used by online judges) rather than by spawning a Docker container per job. That choice is deliberate.
+Executor isolates jobs at the **process/namespace level** (nsjail, the same family as the `isolate` tool used by online judges) rather than by spawning a Docker container per job. That choice is deliberate.
 
 | Dimension | Docker container per job | nsjail / isolate |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ RATE=1500 k6 run scripts/k6-throughput.js  # fixed 1,500 jobs/s arrival
 
 ## Scalability on AWS
 
-Minos is built to scale horizontally and to stay secure while it does. The two services that need capacity (the API and the workers) scale independently.
+Executor is built to scale horizontally and to stay secure while it does. The two services that need capacity (the API and the workers) scale independently.
 
 ### Deployment topology
 
@@ -228,12 +228,12 @@ docker compose up -d redis postgres
 make build
 
 # Worker (needs nsjail on the host and TMP_DIR writable):
-TMP_DIR=/tmp/minos NSJAIL_BIN=nsjail REDIS_ADDR=localhost:6379 ./bin/minos-worker
+TMP_DIR=/tmp/executor NSJAIL_BIN=nsjail REDIS_ADDR=localhost:6379 ./bin/executor-worker
 
 # API (needs DATABASE_URL pointing at the local postgres):
-DATABASE_URL=postgres://minos:minos-secret@localhost:5432/minos \
+DATABASE_URL=postgres://executor:executor-secret@localhost:5432/executor \
 JWT_SECRET=dev-jwt-secret-change-me \
-REDIS_ADDR=localhost:6379 ./bin/minos-api
+REDIS_ADDR=localhost:6379 ./bin/executor-api
 ```
 
 Tests, vet and fmt are also available:

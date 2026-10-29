@@ -20,13 +20,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-minos}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minos-secret}
-      POSTGRES_DB: ${POSTGRES_DB:-minos}
+      POSTGRES_USER: ${POSTGRES_USER:-executor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-executor-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-executor}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minos} -d ${POSTGRES_DB:-minos}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-executor} -d ${POSTGRES_DB:-executor}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -45,7 +45,7 @@ services:
     environment:
       REDIS_ADDR: redis:6379
       CONCURRENCY: ${CONCURRENCY:-4}
-      TMP_DIR: /tmp/minos
+      TMP_DIR: /tmp/executor
       NSJAIL_BIN: /usr/local/bin/nsjail
       LOG_LEVEL: info
       # Jail network isolation: off by default to match the proven tested/
@@ -67,7 +67,7 @@ services:
     environment:
       LISTEN_ADDR: :8080
       REDIS_ADDR: redis:6379
-      DATABASE_URL: postgres://${POSTGRES_USER:-minos}:${POSTGRES_PASSWORD:-minos-secret}@postgres:5432/${POSTGRES_DB:-minos}
+      DATABASE_URL: postgres://${POSTGRES_USER:-executor}:${POSTGRES_PASSWORD:-executor-secret}@postgres:5432/${POSTGRES_DB:-executor}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       SUBMISSION_RETENTION_DAYS: ${SUBMISSION_RETENTION_DAYS:-30}
       CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-1h}

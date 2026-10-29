@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"minos/internal/config"
-	"minos/internal/models"
-	"minos/internal/redisq"
+	"executor/internal/config"
+	"executor/internal/models"
+	"executor/internal/redisq"
 
 	"github.com/alicebob/miniredis/v2"
 )
@@ -32,8 +32,8 @@ func TestWorkerEndToEnd(t *testing.T) {
 
 	cfg := config.Config{
 		RedisAddr:       mr.Addr(),
-		QueueKey:        "minos:queue",
-		ResultPrefix:    "minos:result:",
+		QueueKey:        "executor:queue",
+		ResultPrefix:    "executor:result:",
 		ResultTTL:       5 * time.Minute,
 		Concurrency:     2,
 		TmpDir:          t.TempDir(),
@@ -73,17 +73,17 @@ func TestWorkerEndToEnd(t *testing.T) {
 	// popping — popping the only element empties the list and Redis deletes
 	// the key, taking the TTL with it.
 	deadline := time.Now().Add(5 * time.Second)
-	for !mr.Exists("minos:result:e2e-job-1") && time.Now().Before(deadline) {
+	for !mr.Exists("executor:result:e2e-job-1") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !mr.Exists("minos:result:e2e-job-1") {
+	if !mr.Exists("executor:result:e2e-job-1") {
 		t.Fatal("result key never appeared")
 	}
-	if ttl := mr.TTL("minos:result:e2e-job-1"); ttl <= 0 || ttl > 5*time.Minute {
+	if ttl := mr.TTL("executor:result:e2e-job-1"); ttl <= 0 || ttl > 5*time.Minute {
 		t.Fatalf("result TTL = %v, want (0, 5m]", ttl)
 	}
 
-	res, err := rdb.BLPop(ctx, 5*time.Second, "minos:result:e2e-job-1").Result()
+	res, err := rdb.BLPop(ctx, 5*time.Second, "executor:result:e2e-job-1").Result()
 	if err != nil {
 		t.Fatalf("waiting for result: %v", err)
 	}
@@ -103,10 +103,10 @@ func TestWorkerEndToEnd(t *testing.T) {
 
 	// Heartbeat key should appear within a moment.
 	deadline = time.Now().Add(2 * time.Second)
-	for !mr.Exists("minos:worker:test-host:heartbeat") && time.Now().Before(deadline) {
+	for !mr.Exists("executor:worker:test-host:heartbeat") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !mr.Exists("minos:worker:test-host:heartbeat") {
+	if !mr.Exists("executor:worker:test-host:heartbeat") {
 		t.Fatal("heartbeat key never appeared")
 	}
 
@@ -120,7 +120,7 @@ func TestWorkerEndToEnd(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not shut down within 5s")
 	}
-	if mr.Exists("minos:worker:test-host:heartbeat") {
+	if mr.Exists("executor:worker:test-host:heartbeat") {
 		t.Fatal("heartbeat key not removed on shutdown")
 	}
 }
@@ -139,8 +139,8 @@ func TestWorkerDropsMalformedJobs(t *testing.T) {
 
 	cfg := config.Config{
 		RedisAddr:       mr.Addr(),
-		QueueKey:        "minos:queue",
-		ResultPrefix:    "minos:result:",
+		QueueKey:        "executor:queue",
+		ResultPrefix:    "executor:result:",
 		ResultTTL:       time.Minute,
 		Concurrency:     1,
 		TmpDir:          t.TempDir(),
@@ -169,7 +169,7 @@ func TestWorkerDropsMalformedJobs(t *testing.T) {
 	good, _ := json.Marshal(models.Job{ID: "good-1", Language: "python", Code: "print('ok')"})
 	rdb.RPush(ctx, cfg.QueueKey, good)
 
-	res, err := rdb.BLPop(ctx, 5*time.Second, "minos:result:good-1").Result()
+	res, err := rdb.BLPop(ctx, 5*time.Second, "executor:result:good-1").Result()
 	if err != nil {
 		t.Fatalf("waiting for result: %v", err)
 	}

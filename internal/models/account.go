@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// User is an account in the Minos system.
+// User is an account in the Executor system.
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`

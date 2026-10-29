@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"minos/internal/models"
-	"minos/internal/store/queries"
+	"executor/internal/models"
+	"executor/internal/store/queries"
 )
 
 // Postgres is the production Store backed by pgx. All SQL lives in the

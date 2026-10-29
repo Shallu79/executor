@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Minos Exec Engine API
+  title: Executor Exec Engine API
   description: |
     Secure multi-language code execution engine. Accounts and API-key management
     live here, plus job submission and result retrieval.
@@ -11,7 +11,7 @@ info:
       `job_id`; poll `GET /jobs/{id}` until `status == "completed"`.
   version: 1.0.0
   contact:
-    name: Minos
+    name: Executor
 
 servers:
   - url: http://127.0.0.1:8080
@@ -54,7 +54,7 @@ paths:
                   api_key:
                     type: string
                     description: The account's first API key (shown once).
-                    example: minos_4f8e9a2b7c6d5e4f3a2b1c0d
+                    example: executor_4f8e9a2b7c6d5e4f3a2b1c0d
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -169,7 +169,7 @@ paths:
                   key:
                     type: string
                     description: The plaintext credential (show once, store the hash).
-                    example: minos_1a2b3c4d5e6f708192a3b4c5
+                    example: executor_1a2b3c4d5e6f708192a3b4c5
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -455,8 +455,8 @@ components:
           type: string
         prefix:
           type: string
-          description: First 10 chars of the key, for display only.
-          example: minos_4f8e9
+          description: Key prefix for display only.
+          example: executor_4f8e
         revoked:
           type: boolean
         last_used_at:

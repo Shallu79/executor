@@ -1,4 +1,4 @@
-// High-throughput battle test for the Minos exec engine API.
+// High-throughput battle test for the Executor exec engine API.
 //
 // Uses ramping-arrival-rate to drive a fixed number of executions per second
 // (500 -> 1000 -> 1500 by default). If the system can't keep up, k6 reports

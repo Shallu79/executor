@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"minos/internal/models"
-	"minos/internal/store"
+	"executor/internal/models"
+	"executor/internal/store"
 )
 
 // Response envelopes.

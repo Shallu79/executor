@@ -1,4 +1,4 @@
-// Package api implements the Minos API gateway (ARCHITECTURE.md section 5.1):
+// Package api implements the Executor API gateway (ARCHITECTURE.md section 5.1):
 // a small HTTP service that validates submissions, pushes jobs to Redis, and
 // serves results back to clients. It also owns the account surface: signup,
 // signin, API-key management, and job history backed by postgres.
@@ -12,10 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
-	"minos/internal/config"
-	"minos/internal/languages"
-	"minos/internal/redisq"
-	"minos/internal/store"
+	"executor/internal/config"
+	"executor/internal/languages"
+	"executor/internal/redisq"
+	"executor/internal/store"
 )
 
 // APIKeyHeader is the request header carrying the identity token.

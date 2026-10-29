@@ -1,4 +1,4 @@
-// Package worker implements the Minos worker daemon: it pulls jobs from the
+// Package worker implements the Executor worker daemon: it pulls jobs from the
 // Redis queue, executes them in nsjail sandboxes, and pushes results back
 package worker
 
@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"minos/internal/config"
-	"minos/internal/redisq"
+	"executor/internal/config"
+	"executor/internal/redisq"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -144,10 +144,10 @@ func (w *Worker) loop(ctx context.Context, id int) error {
 	}
 }
 
-// heartbeat maintains minos:worker:{hostname}:heartbeat (TTL 30s, renewed
+// heartbeat maintains executor:worker:{hostname}:heartbeat (TTL 30s, renewed
 // every 10s) so monitoring can detect dead workers.
 func (w *Worker) heartbeat(ctx context.Context) {
-	key := "minos:worker:" + w.cfg.Hostname + ":heartbeat"
+	key := "executor:worker:" + w.cfg.Hostname + ":heartbeat"
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 

@@ -1,5 +1,5 @@
-BINARY := minos-worker
-API_BINARY := minos-api
+BINARY := executor-worker
+API_BINARY := executor-api
 
 .PHONY: build test vet fmt clean up down logs smoke e2e api-smoke
 
@@ -31,9 +31,9 @@ logs:
 
 # End-to-end smoke test: push a python job, wait for the result
 smoke:
-	docker compose exec redis redis-cli RPUSH minos:queue \
+	docker compose exec redis redis-cli RPUSH executor:queue \
 	  '{"id":"smoke-1","language":"python","code":"print(42)"}'
-	docker compose exec redis redis-cli BLPOP minos:result:smoke-1 15
+	docker compose exec redis redis-cli BLPOP executor:result:smoke-1 15
 
 # Full end-to-end suite: hello, timeout, exit codes, stderr, stdin, C, truncation
 e2e:

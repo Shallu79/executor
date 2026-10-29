@@ -17,8 +17,8 @@ type Config struct {
 	RedisDB       int    // REDIS_DB
 
 	// Queue/result keys
-	QueueKey     string        // MINOS_QUEUE          — list workers BLPOP from
-	ResultPrefix string        // MINOS_RESULT_PREFIX  — result key prefix
+	QueueKey     string        // EXECUTOR_QUEUE       — list workers BLPOP from
+	ResultPrefix string        // EXECUTOR_RESULT_PREFIX — result key prefix
 	ResultTTL    time.Duration // RESULT_TTL           — expiry for result keys
 
 	// Execution
@@ -52,12 +52,12 @@ func Load() (Config, error) {
 		RedisPassword: envStr("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DB", 0),
 
-		QueueKey:     envStr("MINOS_QUEUE", "minos:queue"),
-		ResultPrefix: envStr("MINOS_RESULT_PREFIX", "minos:result:"),
+		QueueKey:     envStr("EXECUTOR_QUEUE", "executor:queue"),
+		ResultPrefix: envStr("EXECUTOR_RESULT_PREFIX", "executor:result:"),
 		ResultTTL:    envDur("RESULT_TTL", 5*time.Minute),
 
 		Concurrency:   envInt("CONCURRENCY", 4),
-		TmpDir:        envStr("TMP_DIR", "/tmp/minos"),
+		TmpDir:        envStr("TMP_DIR", "/tmp/executor"),
 		MaxOutputSize: envInt("MAX_OUTPUT_SIZE", 65536),
 
 		NsjailBin:      envStr("NSJAIL_BIN", "nsjail"),
@@ -139,8 +139,8 @@ type APIConfig struct {
 	RedisAddr     string        // REDIS_ADDR
 	RedisPassword string        // REDIS_PASSWORD
 	RedisDB       int           // REDIS_DB
-	QueueKey      string        // MINOS_QUEUE
-	ResultPrefix  string        // MINOS_RESULT_PREFIX
+	QueueKey      string        // EXECUTOR_QUEUE
+	ResultPrefix  string        // EXECUTOR_RESULT_PREFIX
 	ResultTTL     time.Duration // RESULT_TTL
 	MaxCodeSize   int           // MAX_CODE_SIZE — bytes
 	MaxStdinSize  int           // MAX_STDIN_SIZE — bytes
@@ -167,8 +167,8 @@ func LoadAPI() (APIConfig, error) {
 		RedisAddr:           envStr("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:       envStr("REDIS_PASSWORD", ""),
 		RedisDB:             envInt("REDIS_DB", 0),
-		QueueKey:            envStr("MINOS_QUEUE", "minos:queue"),
-		ResultPrefix:        envStr("MINOS_RESULT_PREFIX", "minos:result:"),
+		QueueKey:            envStr("EXECUTOR_QUEUE", "executor:queue"),
+		ResultPrefix:        envStr("EXECUTOR_RESULT_PREFIX", "executor:result:"),
 		ResultTTL:           envDur("RESULT_TTL", 5*time.Minute),
 		MaxCodeSize:         envInt("MAX_CODE_SIZE", 65536),
 		MaxStdinSize:        envInt("MAX_STDIN_SIZE", 1024),

@@ -1,4 +1,4 @@
-// Minos worker daemon: pulls jobs from Redis, executes them in nsjail,
+// Executor worker daemon: pulls jobs from Redis, executes them in nsjail,
 // pushes results back. No HTTP — just BLPOP → nsjail → LPUSH.
 package main
 
@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"minos/internal/config"
-	"minos/internal/redisq"
-	"minos/internal/worker"
+	"executor/internal/config"
+	"executor/internal/redisq"
+	"executor/internal/worker"
 )
 
 func main() {

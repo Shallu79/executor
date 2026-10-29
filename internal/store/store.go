@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"minos/internal/models"
+	"executor/internal/models"
 )
 
 // Sentinel errors returned by Store methods.

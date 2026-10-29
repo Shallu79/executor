@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"minos/internal/models"
-	"minos/internal/store"
+	"executor/internal/models"
+	"executor/internal/store"
 )
 
 // memStore is an in-memory Store for tests.

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"minos/internal/config"
-	"minos/internal/languages"
-	"minos/internal/models"
+	"executor/internal/config"
+	"executor/internal/languages"
+	"executor/internal/models"
 )
 
 // fakeNsjail is a shell script that mimics nsjail's observable behavior:
@@ -317,7 +317,7 @@ func TestRenderConfigContents(t *testing.T) {
 		`src: "` + ws.AppDir + `"`,
 		`dst: "/app"`,
 		"clone_newnet: false",
-		`hostname: "minos-python-run"`,
+		`hostname: "executor-python-run"`,
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("rendered config missing %q\n--- config ---\n%s", want, cfg)

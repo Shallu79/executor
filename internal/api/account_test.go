@@ -127,7 +127,7 @@ func TestAPIKeyCRUD(t *testing.T) {
 		Key string `json:"key"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &created)
-	if !strings.HasPrefix(created.Key, "minos_") || created.APIKey.ID == "" {
+	if !strings.HasPrefix(created.Key, "executor_") || created.APIKey.ID == "" {
 		t.Fatalf("create key response: %s", w.Body.String())
 	}
 

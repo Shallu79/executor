@@ -1,6 +1,6 @@
 // Package models defines the wire formats shared between the API gateway
-// and the worker: the Job pulled from minos:queue and the ExecutionResult
-// pushed to minos:result:{job_id}.
+// and the worker: the Job pulled from executor:queue and the ExecutionResult
+// pushed to executor:result:{job_id}.
 package models
 
 import "time"
@@ -12,7 +12,7 @@ type SubmissionRequest struct {
 	Stdin    string `json:"stdin,omitempty"`
 }
 
-// Job is the unit of work pulled from the minos:queue Redis list.
+// Job is the unit of work pulled from the executor:queue Redis list.
 // It is produced by the API gateway and consumed by workers via BLPOP.
 type Job struct {
 	ID       string    `json:"id"`
@@ -23,7 +23,7 @@ type Job struct {
 	Created  time.Time `json:"created"`
 }
 
-// ExecutionResult is pushed to minos:result:{job_id} once a job finishes
+// ExecutionResult is pushed to executor:result:{job_id} once a job finishes
 // (successfully or not). The API gateway block-waits on that key.
 type ExecutionResult struct {
 	Stdout    string `json:"stdout"`

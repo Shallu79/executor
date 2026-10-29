@@ -1,4 +1,4 @@
-# Minos web UI: build the Vite frontend, serve it with Caddy (static only).
+# Executor web UI: build the Vite frontend, serve it with Caddy (static only).
 # The frontend talks to the API directly and relies on the API's CORS
 # middleware, so VITE_API_BASE defaults to the host-exposed API port.
 FROM oven/bun:1 AS build

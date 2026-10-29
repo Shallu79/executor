@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"minos/internal/auth"
-	"minos/internal/store"
+	"executor/internal/auth"
+	"executor/internal/store"
 )
 
 // bearer extracts the token from the Authorization header, if present.

@@ -1,8 +1,8 @@
 import axios from 'axios'
 import type { AxiosError } from 'axios'
 
-const TOKEN_KEY = 'minos_session_token'
-const NEW_KEY_KEY = 'minos_new_key'
+const TOKEN_KEY = 'executor_session_token'
+const NEW_KEY_KEY = 'executor_new_key'
 
 // API base URL comes from the build-time VITE_API_BASE env var (empty =
 // same-origin, e.g. served behind the nginx /api proxy). Falls back to the

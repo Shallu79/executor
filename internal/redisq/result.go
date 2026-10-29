@@ -6,13 +6,13 @@ import (
 	"errors"
 	"time"
 
-	"minos/internal/models"
+	"executor/internal/models"
 
 	"github.com/redis/go-redis/v9"
 )
 
 // Results pushes execution results to ephemeral per-job keys
-// (minos:result:{job_id}) that the API gateway block-waits on.
+// (executor:result:{job_id}) that the API gateway block-waits on.
 type Results struct {
 	rdb    *redis.Client
 	prefix string

@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"minos/internal/auth"
-	"minos/internal/models"
-	"minos/internal/store"
+	"executor/internal/auth"
+	"executor/internal/models"
+	"executor/internal/store"
 )
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -22,8 +22,8 @@ func newAPIKey() (plaintext, prefix string) {
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
 	}
-	plaintext = "minos_" + hex.EncodeToString(b)
-	return plaintext, plaintext[:10]
+	plaintext = "executor_" + hex.EncodeToString(b)
+	return plaintext, plaintext[:13]
 }
 
 func userJSON(u models.User) gin.H {

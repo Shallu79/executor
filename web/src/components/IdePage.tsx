@@ -103,7 +103,7 @@ export default function IdePage() {
       <input
         className="w-full min-w-0 bg-transparent font-mono text-xs text-ink placeholder:text-faint outline-none"
         type="password"
-        placeholder={getSessionToken() ? 'API key (minos_)' : 'Paste an API key'}
+        placeholder={getSessionToken() ? 'API key (executor_)' : 'Paste an API key'}
         value={apiKey}
         onChange={(e) => {
           setApiKey(e.target.value)

@@ -8,5 +8,5 @@ awk '$2 ~ /^\/proc\// {print $2}' /proc/mounts | sort -r | while read -r mnt; do
     umount "$mnt" 2>/dev/null || true
 done
 
-echo "[entrypoint] Starting minos-worker..."
-exec minos-worker
+echo "[entrypoint] Starting executor-worker..."
+exec executor-worker

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"minos/internal/languages"
-	"minos/internal/models"
+	"executor/internal/languages"
+	"executor/internal/models"
 )
 
 // validate enforces the submission rules from ARCHITECTURE.md section 5.1.

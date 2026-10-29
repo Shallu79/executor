@@ -1,4 +1,4 @@
-# Minos Exec Engine — System Architecture & Design
+# Executor Exec Engine — System Architecture & Design
 
 > A secure, multi-language code execution engine built on nsjail, Go, and Redis.  
 > Inspired by Judge0's architecture with stricter isolation guarantees.
@@ -31,7 +31,7 @@
 
 ## 1. Overview & Goals
 
-Minos Exec Engine accepts user-submitted source code, executes it inside an isolated
+Executor Exec Engine accepts user-submitted source code, executes it inside an isolated
 sandbox, and returns stdout, stderr, exit code, and execution time — all within
 tens of milliseconds.
 
@@ -91,8 +91,8 @@ tens of milliseconds.
                     ┌────────▼────────┐
                     │      Redis       │
                     │                  │
-                    │  minos:queue     │  (List — FIFO job queue)
-                    │  minos:result:*  │  (List — response back to API)
+                    │  executor:queue     │  (List — FIFO job queue)
+                    │  executor:result:*  │  (List — response back to API)
                     └────────▲────────┘
                              │ BLPOP / LPUSH
     ┌────────────────────────┼──────────────────┐
@@ -116,7 +116,7 @@ tens of milliseconds.
    connection open (via `BLPOP` blocking) for up to 10 seconds. No websockets
    needed for batch execute-and-return.
 
-2. **Result keys are ephemeral.** Each job creates `minos:result:{uuid}` with
+2. **Result keys are ephemeral.** Each job creates `executor:result:{uuid}` with
    a 300-second TTL. Abandoned results (client disconnected) are auto-cleaned.
 
 3. **No polling in the hot path.** Workers use `BLPOP` on the queue list (blocks
@@ -149,7 +149,7 @@ Client              API Gateway            Redis              Worker            
   │                     │                    │──────────────────▶│                   │
   │                     │                    │                   │                   │
   │                     │                    │                   │  Write code to    │
-  │                     │                    │                   │  /tmp/minos/{id}/ │
+  │                     │                    │                   │  /tmp/executor/{id}/ │
   │                     │                    │                   │──┐                │
   │                     │                    │                   │◀─┘                │
   │                     │                    │                   │                   │
@@ -215,7 +215,7 @@ Client              API Gateway            Redis              Worker            
 │  Per-IP sliding window via Redis Sorted Sets     │
 │  Default: 30 req/min per IP, burst 5            │
 │  Returns: 429 Too Many Requests                  │
-│  Key: minos:ratelimit:{ip}                       │
+│  Key: executor:ratelimit:{ip}                       │
 │  Algorithm: Sliding window log                   │
 │                                                  │
 │  ┌───────────────────────────────────────────┐   │
@@ -273,13 +273,13 @@ func (h *Handler) Execute(c *gin.Context) {
 
     // 4. Push to queue
     payload, _ := json.Marshal(job)
-    if err := h.redis.RPush(ctx, "minos:queue", payload).Err(); err != nil {
+    if err := h.redis.RPush(ctx, "executor:queue", payload).Err(); err != nil {
         c.AbortWithStatusJSON(500, ErrorResponse{Error: "queue push failed"})
         return
     }
 
     // 5. Block-wait for result
-    resultKey := "minos:result:" + job.ID
+    resultKey := "executor:result:" + job.ID
     result, err := h.redis.BLPop(ctx, 10*time.Second, resultKey).Result()
     if err != nil {
         if errors.Is(err, context.DeadlineExceeded) {
@@ -304,24 +304,24 @@ func (h *Handler) Execute(c *gin.Context) {
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
-│  minos:queue                                              │
+│  executor:queue                                              │
 │  Type: List                                               │
 │  Schema: FIFO queue of JSON-serialized Job objects       │
 │  Size: ~1 KB per entry (job payload)                     │
 │  Eviction: None (consumed by Worker BLPOP)                │
 │  Persistence: Optional (AOF everysec)                     │
 │                                                          │
-│  minos:result:{job_id}                                    │
+│  executor:result:{job_id}                                    │
 │  Type: List (single-element, used for BLPOP response)    │
 │  Schema: ["JSON-serialized ExecutionResult"]              │
 │  TTL: 300 seconds (auto-cleanup for abandoned jobs)       │
 │                                                          │
-│  minos:ratelimit:{ip}                                     │
+│  executor:ratelimit:{ip}                                     │
 │  Type: Sorted Set                                         │
 │  Schema: {timestamp: timestamp} (score = value = now)     │
 │  TTL: 2 * window_size                                     │
 │                                                          │
-│  minos:worker:{hostname}:heartbeat                        │
+│  executor:worker:{hostname}:heartbeat                        │
 │  Type: String                                             │
 │  Schema: "alive"                                         │
 │  TTL: 30 seconds (renewed every 10s by worker)            │
@@ -384,7 +384,7 @@ func (w *Worker) processJob(job Job) {
 
     // 5. Push result to Redis
     payload, _ := json.Marshal(result)
-    resultKey := "minos:result:" + job.ID
+    resultKey := "executor:result:" + job.ID
     w.redis.LPush(ctx, resultKey, payload)
     w.redis.Expire(ctx, resultKey, 5*time.Minute)
 }
@@ -496,7 +496,7 @@ process level. 4-8 concurrent goroutines per CPU core is a sensible default.
 
 ```
 mode: ONCE
-hostname: "minos-jail"
+hostname: "executor-jail"
 chroot: "/"
 time_limit: 5
 max_cpus: 1
@@ -536,7 +536,7 @@ mount {
 
 # The writable workspace — only /app is RW
 mount {
-    src: "/tmp/minos/JOB_ID"
+    src: "/tmp/executor/JOB_ID"
     dst: "/app"
     is_bind: true
     mandatory: true
@@ -607,7 +607,7 @@ exec_bin {
 ```
 
 > **Note:** The `JOB_ID` in the mount path is replaced by the worker at invocation
-> time via `--bindmount /tmp/minos/{job_id}:/app` on the nsjail command line.
+> time via `--bindmount /tmp/executor/{job_id}:/app` on the nsjail command line.
 > The config file uses a placeholder that gets overridden.
 
 ---
@@ -633,7 +633,7 @@ exec_bin {
 | ReDoS / parser bombs           | All code limited to 64KB, no regex on user input                |
 | Side-channel via timing        | Wall time reported but capped at 1ms granularity                |
 | Memory scraping across jobs    | Each job gets a fresh nsjail process (no reuse)                 |
-| Redis injection                | All keys prefixed with `minos:`, no user input in keys          |
+| Redis injection                | All keys prefixed with `executor:`, no user input in keys          |
 
 ### 6.2 Defense in Depth
 
@@ -779,7 +779,7 @@ Rather than duplicate configs, workers use a template system:
 ```
 # template.cfg (Go text/template)
 mode: ONCE
-hostname: "minos-{{.Language}}"
+hostname: "executor-{{.Language}}"
 time_limit: {{.TimeLimit}}
 max_cpus: 1
 
@@ -823,12 +823,12 @@ exec_bin {
 Scenario: Worker dies while nsjail is running a job
 ├── nsjail child process becomes orphaned
 ├── nsjail has its own time_limit → will self-terminate
-├── temp files in /tmp/minos/{job_id} remain → needs cleanup
+├── temp files in /tmp/executor/{job_id} remain → needs cleanup
 │
 Solution:
-├── Worker startup: scan /tmp/minos/ and remove dirs older than 1 hour
-├── tmpfs for /tmp/minos → cleared on reboot
-├── Systemd tmpfiles.d rule: daily cleanup of /tmp/minos/
+├── Worker startup: scan /tmp/executor/ and remove dirs older than 1 hour
+├── tmpfs for /tmp/executor → cleared on reboot
+├── Systemd tmpfiles.d rule: daily cleanup of /tmp/executor/
 └── Redis result key expires after 300s → API returns 504
 ```
 
@@ -851,7 +851,7 @@ Solution:
 
 ```
 Scenario: 10,000 submissions arrive in 1 second
-├── Queue: minos:queue grows to 10,000 entries (~10 MB)
+├── Queue: executor:queue grows to 10,000 entries (~10 MB)
 ├── API: 10,000 BLPOP connections waiting on result keys
 ├── Workers: Process at rate of ~200 jobs/sec (4 workers × 50/sec each)
 │
@@ -921,11 +921,11 @@ Go/Rust: spawning threads
 
 ```
 Attack: User creates symlink to /etc/shadow inside /app
-  → In jail: /app points to /tmp/minos/{uuid} on host
+  → In jail: /app points to /tmp/executor/{uuid} on host
   → Symlink target /etc/shadow → resolves to /etc/shadow inside jail
   → /etc/shadow is on RO bind-mount → can't read (no permissions as UID 99999)
 
-Attack: User creates symlink at /tmp/minos/{uuid}/escape -> /etc/passwd
+Attack: User creates symlink at /tmp/executor/{uuid}/escape -> /etc/passwd
   → After worker cleans up: os.RemoveAll follows symlinks by default in Go?
   → Go's os.RemoveAll does NOT follow symlinks!
   → Only the symlink itself is removed, not the target
@@ -936,7 +936,7 @@ Attack: User creates symlink at /tmp/minos/{uuid}/escape -> /etc/passwd
 
 ```
 Worker Model: N goroutines, each processing one job at a time
-Each goroutine creates its own /tmp/minos/{uuid} directory
+Each goroutine creates its own /tmp/executor/{uuid} directory
 
 Safety:
   ✓ UUIDs are unique (v4, collision probability negligible)
@@ -969,16 +969,16 @@ nsjail jail environment is empty by default:
 
 ```bash
 # 1. Dedicated user for worker process
-useradd -r -s /bin/false minos-worker
+useradd -r -s /bin/false executor-worker
 
 # 2. cgroups v2 setup
 echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control
-mkdir -p /sys/fs/cgroup/minos
-chown minos-worker:minos-worker /sys/fs/cgroup/minos
+mkdir -p /sys/fs/cgroup/executor
+chown executor-worker:executor-worker /sys/fs/cgroup/executor
 
 # 3. tmpfs for workspaces (size-limited)
-echo "tmpfs /tmp/minos tmpfs rw,nodev,nosuid,noexec,size=4G,mode=700 0 0" >> /etc/fstab
-mount /tmp/minos
+echo "tmpfs /tmp/executor tmpfs rw,nodev,nosuid,noexec,size=4G,mode=700 0 0" >> /etc/fstab
+mount /tmp/executor
 
 # 4. nsjail binary (compiled with seccomp support)
 cp nsjail /usr/local/bin/nsjail
@@ -986,22 +986,22 @@ chmod 755 /usr/local/bin/nsjail
 setcap cap_sys_admin,cap_sys_chroot,cap_setuid,cap_setgid,cap_sys_resource+ep /usr/local/bin/nsjail
 
 # 5. Systemd service for worker
-cat > /etc/systemd/system/minos-worker.service <<EOF
+cat > /etc/systemd/system/executor-worker.service <<EOF
 [Unit]
-Description=Minos Execution Worker
+Description=Executor Execution Worker
 After=network.target
 
 [Service]
 Type=simple
-User=minos-worker
-ExecStart=/opt/minos/bin/worker
+User=executor-worker
+ExecStart=/opt/executor/bin/worker
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
 LimitNPROC=8192
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/tmp/minos /sys/fs/cgroup/minos
+ReadWritePaths=/tmp/executor /sys/fs/cgroup/executor
 NoNewPrivileges=yes
 MemoryDenyWriteExecute=yes
 
@@ -1010,7 +1010,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable minos-worker
+systemctl enable executor-worker
 ```
 
 ### 9.2 API Deployment (Docker)
@@ -1041,7 +1041,7 @@ API Health:
   /readyz:  Returns 200 if Redis is reachable (readiness probe)
 
 Worker Health:
-  Redis heartbeat key: minos:worker:{hostname}:heartbeat
+  Redis heartbeat key: executor:worker:{hostname}:heartbeat
   TTL: 30s, renewed every 10s
   If heartbeat expires → worker is dead → alert to on-call
 ```
@@ -1049,7 +1049,7 @@ Worker Health:
 ### 9.4 Secrets Management
 
 ```
-Redis password: Environment variable (MINOS_REDIS_PASSWORD)
+Redis password: Environment variable (EXECUTOR_REDIS_PASSWORD)
   ├── Set via Kubernetes secret or systemd EnvironmentFile
   └── Never in config files, never in source code
 
@@ -1104,17 +1104,17 @@ No other secrets needed:
 ### 10.2 Queue Prioritization
 
 ```
-Instead of a single minos:queue, use multiple priority queues:
+Instead of a single executor:queue, use multiple priority queues:
 
-  minos:queue:high    (priority users, small code)
-  minos:queue:medium  (standard users)
-  minos:queue:low     (batch jobs, large code)
+  executor:queue:high    (priority users, small code)
+  executor:queue:medium  (standard users)
+  executor:queue:low     (batch jobs, large code)
 
 Worker BLPOP pattern: check high, then medium, then low
 (Can't do BLPOP on multiple keys — use LPOP with short sleep instead)
 
 OR: Use Redis Streams with consumer groups for priority:
-  XADD minos:queue * priority high job {...}
+  XADD executor:queue * priority high job {...}
   XREADGROUP ... >  (ordered by priority within stream)
 ```
 
@@ -1122,7 +1122,7 @@ OR: Use Redis Streams with consumer groups for priority:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Queue Depth (qdepth = LLEN minos:queue)                 │
+│ Queue Depth (qdepth = LLEN executor:queue)                 │
 │                                                         │
 │   qdepth < 1000   → Normal operation                   │
 │   1000 < qdepth < 5000 → Return X-Queue-Depth header    │
@@ -1144,28 +1144,28 @@ OR: Use Redis Streams with consumer groups for priority:
 
 ```
 API Metrics:
-  minos_api_requests_total{method, endpoint, status}      # Counter
-  minos_api_request_duration_ms{method, endpoint}         # Histogram
-  minos_api_queue_push_failures_total                      # Counter
-  minos_api_result_wait_ms                                 # Histogram (BLPOP time)
-  minos_api_rate_limited_total                             # Counter
+  executor_api_requests_total{method, endpoint, status}      # Counter
+  executor_api_request_duration_ms{method, endpoint}         # Histogram
+  executor_api_queue_push_failures_total                      # Counter
+  executor_api_result_wait_ms                                 # Histogram (BLPOP time)
+  executor_api_rate_limited_total                             # Counter
 
 Worker Metrics:
-  minos_worker_jobs_total{language, exit_code}             # Counter
-  minos_worker_job_duration_ms{language}                   # Histogram
-  minos_worker_nsjail_spawn_ms                             # Histogram
-  minos_worker_cleanup_ms                                  # Histogram
-  minos_worker_errors_total{type}                          # Counter
+  executor_worker_jobs_total{language, exit_code}             # Counter
+  executor_worker_job_duration_ms{language}                   # Histogram
+  executor_worker_nsjail_spawn_ms                             # Histogram
+  executor_worker_cleanup_ms                                  # Histogram
+  executor_worker_errors_total{type}                          # Counter
     types: workspace_create_failed, nsjail_spawn_failed,
            timeout, cleanup_failed
 
 Redis Metrics:
-  minos_queue_depth                                         # Gauge (LLEN)
-  minos_queue_oldest_age_seconds                            # Gauge
-  minos_result_keys_active                                  # Gauge
+  executor_queue_depth                                         # Gauge (LLEN)
+  executor_queue_oldest_age_seconds                            # Gauge
+  executor_result_keys_active                                  # Gauge
 
 System Metrics (worker host):
-  node_disk_usage_bytes{path="/tmp/minos"}                 # Gauge
+  node_disk_usage_bytes{path="/tmp/executor"}                 # Gauge
   node_memory_available_bytes                              # Gauge
   node_cpu_usage_percent                                   # Gauge
 ```
@@ -1204,7 +1204,7 @@ log.Error().
 - api_error_5xx_rate > 1% for 5m → P2: API degradation
 - rate_limited_rate > 100/min → P3: Possible abuse
 - job_latency_p99 > 5s for 5m → P3: Slowdown detected
-- /tmp/minos disk usage > 80% → P3: Cleanup failure
+- /tmp/executor disk usage > 80% → P3: Cleanup failure
 ```
 
 ---
@@ -1254,8 +1254,8 @@ log.Error().
 │  │  │              │  seccomp      │  RLIMITs + time_limit       │    │  │
 │  │  │              └───────────────┘                             │    │  │
 │  │  │                                                           │    │  │
-│  │  │  /tmp/minos (tmpfs, 4GB)    ← per-job workspace           │    │  │
-│  │  │  /opt/minos/compilers/      ← python3, node, gcc, etc.    │    │  │
+│  │  │  /tmp/executor (tmpfs, 4GB)    ← per-job workspace           │    │  │
+│  │  │  /opt/executor/compilers/      ← python3, node, gcc, etc.    │    │  │
 │  │  └───────────────────────────────────────────────────────────┘    │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -1330,17 +1330,17 @@ volumes:
 ### 12.5 Worker systemd Service
 
 ```ini
-# /etc/systemd/system/minos-worker.service
+# /etc/systemd/system/executor-worker.service
 [Unit]
-Description=Minos Exec Engine Worker
+Description=Executor Exec Engine Worker
 After=network.target docker.service redis.service
 Requires=docker.service
 
 [Service]
 Type=simple
-User=minos-worker
-Group=minos-worker
-ExecStart=/opt/minos/bin/worker
+User=executor-worker
+Group=executor-worker
+ExecStart=/opt/executor/bin/worker
 Restart=always
 RestartSec=5
 
@@ -1352,7 +1352,7 @@ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SETUID CAP_SETGID CAP_SYS
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/tmp/minos
+ReadWritePaths=/tmp/executor
 PrivateTmp=yes
 MemoryDenyWriteExecute=yes
 LimitNOFILE=65536
@@ -1362,7 +1362,7 @@ LimitNPROC=8192
 Environment=REDIS_ADDR=localhost:6379
 Environment=REDIS_PASSWORD=secret
 Environment=CONCURRENCY=4
-Environment=TMP_DIR=/tmp/minos
+Environment=TMP_DIR=/tmp/executor
 
 [Install]
 WantedBy=multi-user.target
@@ -1372,12 +1372,12 @@ WantedBy=multi-user.target
 
 ```bash
 # 1. Create worker user
-sudo useradd -r -s /bin/false -d /opt/minos minos-worker
+sudo useradd -r -s /bin/false -d /opt/executor executor-worker
 
 # 2. Create tmpfs for job workspaces
-sudo mkdir -p /tmp/minos
-echo "tmpfs /tmp/minos tmpfs rw,nodev,nosuid,noexec,size=4G,mode=700,uid=minos-worker 0 0" | sudo tee -a /etc/fstab
-sudo mount /tmp/minos
+sudo mkdir -p /tmp/executor
+echo "tmpfs /tmp/executor tmpfs rw,nodev,nosuid,noexec,size=4G,mode=700,uid=executor-worker 0 0" | sudo tee -a /etc/fstab
+sudo mount /tmp/executor
 
 # 3. Install compilers/interpreters
 sudo dnf install -y python3 nodejs gcc gcc-c++ ruby java-latest-openjdk
@@ -1390,14 +1390,14 @@ sudo chmod 755 /usr/local/bin/nsjail
 rm -rf /tmp/nsjail-build
 
 # 5. Deploy worker binary and config
-sudo mkdir -p /opt/minos/{bin,configs}
-sudo cp worker /opt/minos/bin/
-sudo cp nsjail-worker.cfg /opt/minos/configs/
-sudo chown -R minos-worker:minos-worker /opt/minos
+sudo mkdir -p /opt/executor/{bin,configs}
+sudo cp worker /opt/executor/bin/
+sudo cp nsjail-worker.cfg /opt/executor/configs/
+sudo chown -R executor-worker:executor-worker /opt/executor
 
 # 6. Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable --now minos-worker
+sudo systemctl enable --now executor-worker
 ```
 
 ### 12.7 Firewall Rules
@@ -1409,9 +1409,9 @@ sudo firewall-cmd --add-service=ssh --permanent
 
 # Block worker from making outbound connections
 sudo firewall-cmd --direct --add-rule ipv4 filter OUTPUT 0 \
-  -m owner --uid-owner minos-worker -j DROP
+  -m owner --uid-owner executor-worker -j DROP
 sudo firewall-cmd --direct --add-rule ipv4 filter OUTPUT 0 \
-  -m owner --uid-owner minos-worker -d 127.0.0.1 -p tcp --dport 6379 -j ACCEPT
+  -m owner --uid-owner executor-worker -d 127.0.0.1 -p tcp --dport 6379 -j ACCEPT
 
 sudo firewall-cmd --reload
 ```
@@ -1423,11 +1423,11 @@ sudo firewall-cmd --reload
 docker compose up -d
 
 # 2. Start worker
-sudo systemctl start minos-worker
+sudo systemctl start executor-worker
 
 # 3. Verify
 docker compose ps                    # api + redis should be healthy
-sudo systemctl status minos-worker   # worker should be active
+sudo systemctl status executor-worker   # worker should be active
 redis-cli -a secret PING             # PONG
 
 # 4. Smoke test
@@ -1441,7 +1441,7 @@ curl -X POST http://localhost:8080/api/v1/execute \
 ## 13. Directory Structure
 
 ```
-minos-exec-engine/
+executor-exec-engine/
 ├── cmd/
 │   ├── api/
 │   │   └── main.go                 # Gin server entrypoint
@@ -1488,7 +1488,7 @@ minos-exec-engine/
 │   │   ├── Dockerfile.worker
 │   │   └── docker-compose.yml      # Local dev setup
 │   ├── systemd/
-│   │   └── minos-worker.service
+│   │   └── executor-worker.service
 │   └── ansible/
 │       └── worker-setup.yml        # Bare-metal provisioning
 ├── scripts/
@@ -1508,7 +1508,7 @@ minos-exec-engine/
 
 ```
 mode: ONCE
-hostname: "minos-python"
+hostname: "executor-python"
 time_limit: 5
 max_cpus: 1
 
@@ -1944,7 +1944,7 @@ exec_bin {
 **Compile phase (`gcc-compile.cfg`):**
 ```
 mode: ONCE
-hostname: "minos-gcc-compile"
+hostname: "executor-gcc-compile"
 time_limit: 10
 max_cpus: 2
 
@@ -2004,7 +2004,7 @@ exec_bin {
 **Run phase (`gcc-run.cfg`):**
 ```
 mode: ONCE
-hostname: "minos-gcc-run"
+hostname: "executor-gcc-run"
 time_limit: 3
 max_cpus: 1
 
@@ -2055,11 +2055,11 @@ exec_bin {
    docker compose up -d
 
 2. Start worker daemon
-   sudo systemctl start minos-worker
+   sudo systemctl start executor-worker
 
 3. Verify
    docker compose ps                       # api + redis healthy
-   sudo systemctl status minos-worker      # active
+   sudo systemctl status executor-worker      # active
    redis-cli -a secret PING                # PONG
 
 4. Smoke test
@@ -2120,17 +2120,17 @@ The following combinations were tested on Fedora with Docker + nsjail (commit `H
 - Seccomp KILL policy on all unknown syscalls
 - RLIMIT_AS (256MB), RLIMIT_NPROC (32), RLIMIT_CPU (5s), RLIMIT_FSIZE (5MB)
 
-If an attacker escapes nsjail, they land as the `minos-worker` system user, which has:
+If an attacker escapes nsjail, they land as the `executor-worker` system user, which has:
 - No shell access (`/bin/false`)
 - Firewall blocking all outbound except localhost:6379
-- Only write access to `/tmp/minos` (tmpfs)
+- Only write access to `/tmp/executor` (tmpfs)
 - No sudo, no capabilities beyond what nsjail needs
 - No home directory, no SSH key
 - Host protected by `ProtectSystem=strict` in systemd unit
 - Firewall blocks all worker outbound except Redis on localhost:6379
 - Systemd AmbientCapabilities restricted to SYS_ADMIN + CHROOT + SETUID + SETGID + SYS_RESOURCE
 
-Escaping nsjail gives you the `minos-worker` user — not root.
+Escaping nsjail gives you the `executor-worker` user — not root.
 
 ### 15.3 Single-VM Deployment
 
@@ -2141,11 +2141,11 @@ API + Redis run in Docker (docker-compose) on a bridge network with Redis port e
 ```
 Host (Fedora/Debian)
 ├── systemd: nginx (TLS + rate limit + proxy to :8080)
-├── systemd: minos-worker (Go daemon → nsjail per job)
+├── systemd: executor-worker (Go daemon → nsjail per job)
 ├── docker-compose:
 │   ├── api:8080 (Gin, replicas: 2)
 │   └── redis:6379 (exposed on 127.0.0.1:6379 for worker)
-└── /tmp/minos (tmpfs, per-job workspaces)
+└── /tmp/executor (tmpfs, per-job workspaces)
 ```
 
 **Why the worker runs bare metal (not Docker):**
@@ -2163,9 +2163,9 @@ The worker is a single Go binary that loops: `BLPOP → write code to /tmp → e
 Tested today on Fedora with nsjail built from HEAD. Uses bind-mount for `/proc` (no fresh procfs) and scalar rlimits (not message blocks in this nsjail version).
 
 ```protobuf
-# /opt/minos/configs/nsjail-worker.cfg
+# /opt/executor/configs/nsjail-worker.cfg
 mode: ONCE
-hostname: "minos-worker"
+hostname: "executor-worker"
 time_limit: 5
 max_cpus: 1
 keep_caps: true
@@ -2233,7 +2233,7 @@ func main() {
     ctx := context.Background()
 
     for {
-        result, err := rdb.BLPop(ctx, 0, "minos:queue").Result()
+        result, err := rdb.BLPop(ctx, 0, "executor:queue").Result()
         if err != nil {
             continue
         }
@@ -2241,14 +2241,14 @@ func main() {
         var job Job
         json.Unmarshal([]byte(result[1]), &job)
 
-        workDir := filepath.Join("/tmp/minos", job.ID)
+        workDir := filepath.Join("/tmp/executor", job.ID)
         os.MkdirAll(filepath.Join(workDir, "app"), 0700)
         defer os.RemoveAll(workDir)
 
         os.WriteFile(filepath.Join(workDir, "app", "main.py"), []byte(job.Code), 0400)
 
         cmd := exec.Command("nsjail",
-            "--config", "/opt/minos/configs/nsjail-worker.cfg",
+            "--config", "/opt/executor/configs/nsjail-worker.cfg",
             "--bindmount", workDir+"/app:/app",
             "--exec_bin", "/usr/bin/python3",
             "--", "/app/main.py",
@@ -2259,8 +2259,8 @@ func main() {
         elapsed := time.Since(start).Milliseconds()
 
         res, _ := json.Marshal(Result{Stdout: string(stdout), TimeMs: elapsed})
-        rdb.LPush(ctx, "minos:result:"+job.ID, res)
-        rdb.Expire(ctx, "minos:result:"+job.ID, 5*time.Minute)
+        rdb.LPush(ctx, "executor:result:"+job.ID, res)
+        rdb.Expire(ctx, "executor:result:"+job.ID, 5*time.Minute)
     }
 }
 ```

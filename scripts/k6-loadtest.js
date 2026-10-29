@@ -1,4 +1,4 @@
-// Load test for the Minos exec engine API.
+// Load test for the Executor exec engine API.
 //
 // Run: k6 run scripts/k6-loadtest.js
 // Env:  API_BASE=http://127.0.0.1:8080 (default)

@@ -3,4 +3,7 @@ bin
 tested
 *.md
 node_modules
+*/node_modules
+**/node_modules
 web/dist
+dist

@@ -1,4 +1,4 @@
-module minos
+module executor
 
 go 1.25.0
 

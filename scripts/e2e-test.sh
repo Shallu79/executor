@@ -2,8 +2,8 @@
 # End-to-end smoke test for the worker stack.
 #
 # Prereq: docker compose up -d --build
-# Pushes jobs straight into minos:queue (the way the API gateway will) and
-# prints each result from minos:result:{id}.
+# Pushes jobs straight into executor:queue (the way the API gateway will) and
+# prints each result from executor:result:{id}.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,9 +11,9 @@ CLI=(docker compose exec -T redis redis-cli)
 
 submit() { # <id> <payload-file>
     local id="$1" file="$2"
-    "${CLI[@]}" -x RPUSH minos:queue < "$file" > /dev/null
+    "${CLI[@]}" -x RPUSH executor:queue < "$file" > /dev/null
     echo "== $id =="
-    "${CLI[@]}" BLPOP "minos:result:$id" 30 | tail -1
+    "${CLI[@]}" BLPOP "executor:result:$id" 30 | tail -1
     echo
 }
 

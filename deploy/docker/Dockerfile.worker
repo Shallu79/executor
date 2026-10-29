@@ -1,4 +1,4 @@
-# Minos worker image: nsjail + Go worker + language runtimes.
+# Executor worker image: nsjail + Go worker + language runtimes.
 # Run with: cap_add SYS_ADMIN, security_opt apparmor/seccomp unconfined
 # (see docker-compose.yml — same requirements as the proven tested/ setup).
 
@@ -20,7 +20,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/minos-worker ./cmd/worker
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/executor-worker ./cmd/worker
 
 # ---- Stage 3: runtime ----
 FROM ubuntu:24.04
@@ -30,16 +30,16 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     # language runtimes registered in internal/worker/language.go
     python3 bash nodejs golang-go gcc g++ binutils libc6-dev default-jdk-headless \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /tmp/minos && chmod 700 /tmp/minos
+    && mkdir -p /tmp/executor && chmod 700 /tmp/executor
 
 COPY --from=nsjail-build /nsjail-bin /usr/local/bin/nsjail
-COPY --from=worker-build /out/minos-worker /usr/local/bin/minos-worker
+COPY --from=worker-build /out/executor-worker /usr/local/bin/executor-worker
 COPY deploy/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENV REDIS_ADDR=redis:6379 \
     CONCURRENCY=4 \
-    TMP_DIR=/tmp/minos \
+    TMP_DIR=/tmp/executor \
     NSJAIL_BIN=/usr/local/bin/nsjail
 
 ENTRYPOINT ["/entrypoint.sh"]

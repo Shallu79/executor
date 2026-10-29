@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"minos/internal/api"
-	"minos/internal/config"
-	"minos/internal/redisq"
-	"minos/internal/store"
+	"executor/internal/api"
+	"executor/internal/config"
+	"executor/internal/redisq"
+	"executor/internal/store"
 )
 
 func main() {

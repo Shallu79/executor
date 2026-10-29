@@ -80,7 +80,7 @@ export default function TopBar({
 
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-pixel text-xs text-brand [text-shadow:2px_2px_0_rgba(0,0,0,0.9)] sm:text-sm">
-              MINOS
+              EXECUTOR
             </span>
           </Link>
         </div>

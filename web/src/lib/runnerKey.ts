@@ -2,7 +2,7 @@
 // be set from multiple places (topbar "Get API key", the IDE toolbar) — any
 // subscriber (the IDE) is notified on change.
 
-const KEY = 'minos_runner_key'
+const KEY = 'executor_runner_key'
 
 type Listener = (key: string) => void
 

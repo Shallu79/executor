@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"minos/internal/models"
+	"executor/internal/models"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// Queue is the FIFO job queue (minos:queue) workers consume from.
+// Queue is the FIFO job queue (executor:queue) workers consume from.
 type Queue struct {
 	rdb *redis.Client
 	key string

@@ -17,10 +17,10 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"minos/internal/config"
-	"minos/internal/models"
-	"minos/internal/redisq"
-	"minos/internal/store"
+	"executor/internal/config"
+	"executor/internal/models"
+	"executor/internal/redisq"
+	"executor/internal/store"
 )
 
 func newTestServer(t *testing.T) (*Server, *redis.Client, *miniredis.Miniredis, *memStore) {
@@ -28,8 +28,8 @@ func newTestServer(t *testing.T) (*Server, *redis.Client, *miniredis.Miniredis, 
 	mr := miniredis.RunT(t)
 	cfg := config.APIConfig{
 		RedisAddr:        mr.Addr(),
-		QueueKey:         "minos:queue",
-		ResultPrefix:     "minos:result:",
+		QueueKey:         "executor:queue",
+		ResultPrefix:     "executor:result:",
 		ResultTTL:        5 * time.Minute,
 		MaxCodeSize:      65536,
 		MaxStdinSize:     1024,
@@ -51,8 +51,8 @@ func seedUser(t *testing.T, st store.Store) (userID, apiKey string) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	plain := "minos_test_key_" + time.Now().String()
-	if _, err := st.CreateAPIKey(context.Background(), user.ID, "default", store.HashAPIKey(plain), plain[:10]); err != nil {
+	plain := "executor_test_key_" + time.Now().String()
+	if _, err := st.CreateAPIKey(context.Background(), user.ID, "default", store.HashAPIKey(plain), plain[:13]); err != nil {
 		t.Fatalf("seed key: %v", err)
 	}
 	return user.ID, plain
@@ -126,7 +126,7 @@ func TestExecuteWithValidKey(t *testing.T) {
 	var jobID string
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		vals, err := rdb.LRange(t.Context(), "minos:queue", 0, -1).Result()
+		vals, err := rdb.LRange(t.Context(), "executor:queue", 0, -1).Result()
 		if err == nil && len(vals) > 0 {
 			var job models.Job
 			if json.Unmarshal([]byte(vals[0]), &job) == nil && job.ID != "" {
@@ -148,7 +148,7 @@ func TestExecuteWithValidKey(t *testing.T) {
 
 	res := models.ExecutionResult{Stdout: "42\n", Stderr: "", ExitCode: 0, TimeMs: 22}
 	payload, _ := json.Marshal(res)
-	if err := rdb.LPush(t.Context(), "minos:result:"+jobID, payload).Err(); err != nil {
+	if err := rdb.LPush(t.Context(), "executor:result:"+jobID, payload).Err(); err != nil {
 		t.Fatalf("simulate worker: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestExecuteTimesOutWithoutWorker(t *testing.T) {
 	if got.Status != "processing" || got.JobID == "" {
 		t.Fatalf("504 body missing job_id/status: %+v", got)
 	}
-	if n := rdb.LLen(t.Context(), "minos:queue").Val(); n != 1 {
+	if n := rdb.LLen(t.Context(), "executor:queue").Val(); n != 1 {
 		t.Fatalf("queue length = %d, want 1", n)
 	}
 }
@@ -215,7 +215,7 @@ func TestExecuteValidation(t *testing.T) {
 		})
 	}
 
-	if n := rdb.LLen(t.Context(), "minos:queue").Val(); n != 0 {
+	if n := rdb.LLen(t.Context(), "executor:queue").Val(); n != 0 {
 		t.Fatalf("queue length = %d, want 0", n)
 	}
 }
@@ -235,7 +235,7 @@ func TestGetJobProcessingThenCompleted(t *testing.T) {
 
 	res := models.ExecutionResult{Stdout: "42\n", Stderr: "", ExitCode: 0, TimeMs: 22}
 	payload, _ := json.Marshal(res)
-	if err := rdb.LPush(t.Context(), "minos:result:"+id, payload).Err(); err != nil {
+	if err := rdb.LPush(t.Context(), "executor:result:"+id, payload).Err(); err != nil {
 		t.Fatalf("seed result: %v", err)
 	}
 

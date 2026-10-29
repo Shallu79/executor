@@ -14,10 +14,10 @@ import (
 	"text/template"
 	"time"
 
-	nsjailcfg "minos/configs/nsjail"
-	"minos/internal/config"
-	"minos/internal/languages"
-	"minos/internal/models"
+	nsjailcfg "executor/configs/nsjail"
+	"executor/internal/config"
+	"executor/internal/languages"
+	"executor/internal/models"
 )
 
 // Executor runs submissions inside nsjail sandboxes.

@@ -44,9 +44,9 @@ export default function AuthScreen() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand to-brand-2 text-2xl font-black text-white shadow-xl shadow-green-950/50">
-            M
+            E
           </div>
-          <h1 className="text-2xl font-bold text-ink">Minos</h1>
+          <h1 className="text-2xl font-bold text-ink">Executor</h1>
           <p className="mt-1 text-sm text-muted">Secure, multi-language code execution</p>
         </div>
 
